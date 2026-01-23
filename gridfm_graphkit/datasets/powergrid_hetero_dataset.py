@@ -161,6 +161,8 @@ class HeteroGridDatasetDisk(Dataset):
             bus_data["scenario"].unique(),
             desc="Processing scenarios",
         ):
+            if osp.exists(osp.join(self.processed_dir, f"data_index_{scenario}.pt")):
+                continue
             if (
                 scenario not in gen_groups.groups
                 or scenario not in branch_groups.groups
