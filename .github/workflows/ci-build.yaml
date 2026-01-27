@@ -53,3 +53,131 @@ jobs:
       - name: Unit tests
         run: |
           pytest --cov=. tests/
+
+  detect_secrets:
+    name: IBM detect-secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: sudo apt-get update && sudo apt-get install -y jq diffutils
+      - name: Install IBM detect-secrets
+
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade "git+https://github.com/ibm/detect-secrets.git@master#egg=detect-secrets"
+          python3 -m pip install boxsdk
+      - name: Scan repository & write snapshot
+        run: |
+          mkdir -p security-outputs
+          # Run the scan; send stderr to a log; stdout to JSON
+          detect-secrets scan \
+            --exclude-files '.*\.ipynb$' \
+            --exclude-lines '"(outputs|image/\w+|id|hash)":.*' \
+            > security-outputs/ds-results.json 2> security-outputs/.secrets.new
+
+
+
+      - name: Upload scan artifacts (for triage)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detect-secrets-artifacts
+          path: .secrets.new
+
+  codeql:
+    name: CodeQL (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
+
+
+  #semgrep:
+  #  name: Semgrep (p/default + local overrides)
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - uses: actions/checkout@v4
+
+  #    - name: Install Semgrep
+  #      run: pip install semgrep
+
+
+  #    - name: Semgrep scan (PR diff-aware)
+  #      if: ${{ github.event_name == 'pull_request' }}
+  #      run: |
+  #        semgrep \
+  #          --config=p/default \
+  #          --config=.semgrep.yaml \
+  #          --error \
+  #          --baseline-commit "${{ github.event.pull_request.base.sha }}" \
+  #          .
+
+  #    - name: Semgrep scan (full)
+  #      if: ${{ github.event_name != 'pull_request' }}
+  #      run: |
+  #        semgrep \
+  #          --config=p/default \
+  #          --config=.semgrep.yaml \
+  #          --error \
+
+
+  bandit:
+    name: Bandit (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Bandit
+        run: pip install bandit
+      - name: Run Bandit
+        run: bandit -ll -ii -r gridfm-graphkit -f json -o bandit-report.json
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  pip_audit:
+    name: pip-audit (deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package (editable) and dev/test extras if present
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev,test] || pip install -e .
+      - name: Run pip-audit
+        uses: pypa/gh-action-pip-audit@v1.1.0
+
+  trivy_repo:
+    name: Trivy (repo scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
