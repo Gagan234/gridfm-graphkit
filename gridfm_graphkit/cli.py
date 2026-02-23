@@ -9,6 +9,7 @@ import random
 import pandas as pd
 
 from gridfm_graphkit.io.param_handler import get_task
+from gridfm_graphkit.tasks.compute_ac_dc_metrics import compute_ac_dc_metrics
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.pytorch.loggers import MLFlowLogger
@@ -78,54 +79,56 @@ def main_cli(args):
         trainer.fit(model=model, datamodule=litGrid)
 
     if args.command != "predict":
-        trainer.test(model=model, datamodule=litGrid)
-
-    if args.command == "predict":
-        predictions = trainer.predict(model=model, datamodule=litGrid)
-        all_outputs = []
-        all_mask_PQ = []
-        all_mask_PV = []
-        all_mask_REF = []
-        all_scenarios = []
-        all_bus_numbers = []
-
-        for batch in predictions:
-            all_outputs.append(batch["output"])
-            all_mask_PQ.append(batch["mask_PQ"])
-            all_mask_PV.append(batch["mask_PV"])
-            all_mask_REF.append(batch["mask_REF"])
-            all_scenarios.append(batch["scenario_id"])
-            all_bus_numbers.append(batch["bus_number"])
-
-        # Concatenate all
-        outputs = np.concatenate(all_outputs, axis=0)  # shape: [num_nodes, 6]
-        mask_PQ = np.concatenate(all_mask_PQ, axis=0)
-        mask_PV = np.concatenate(all_mask_PV, axis=0)
-        mask_REF = np.concatenate(all_mask_REF, axis=0)
-        scenario_ids = np.concatenate(all_scenarios, axis=0)
-        bus_numbers = np.concatenate(all_bus_numbers, axis=0)
-
-        # Build DataFrame
-        df = pd.DataFrame(
-            {
-                "scenario": scenario_ids,
-                "bus": bus_numbers,
-                "PD": outputs[:, 0],
-                "QD": outputs[:, 1],
-                "PG": outputs[:, 2],
-                "QG": outputs[:, 3],
-                "VM": outputs[:, 4],
-                "VA": outputs[:, 5],
-                "PQ": mask_PQ.astype(int),
-                "PV": mask_PV.astype(int),
-                "REF": mask_REF.astype(int),
-            },
+        test_trainer = L.Trainer(
+            logger=logger,
+            accelerator=config_args.training.accelerator,
+            devices=1,
+            num_nodes=1,
+            log_every_n_steps=1,
+            default_root_dir=args.log_dir,
         )
+        test_trainer.test(model=model, datamodule=litGrid)
 
-        # Save CSV
-        output_dir = os.path.join(args.output_path)
+    artifacts_dir = os.path.join(
+        logger.save_dir, logger.experiment_id, logger.run_id, "artifacts"
+    )
+
+    compute_dc_ac = getattr(args, "compute_dc_ac_metrics", False)
+    if compute_dc_ac:
+        sn_mva = config_args.data.baseMVA
+        for grid_name in config_args.data.networks:
+            raw_dir = os.path.join(args.data_path, grid_name, "raw")
+            print(f"\nComputing ground-truth AC/DC metrics for {grid_name}...")
+            compute_ac_dc_metrics(artifacts_dir, raw_dir, grid_name, sn_mva)
+
+    save_output = getattr(args, "save_output", False) or args.command == "predict"
+    if save_output:
+        if len(config_args.data.networks) > 1:
+            raise NotImplementedError("Predict/save_output with multiple grids is not yet supported.")
+
+        predict_trainer = L.Trainer(
+            logger=logger,
+            accelerator=config_args.training.accelerator,
+            devices=1,
+            num_nodes=1,
+            log_every_n_steps=1,
+            default_root_dir=args.log_dir,
+        )
+        predictions = predict_trainer.predict(model=model, datamodule=litGrid)
+
+        rows = {key: [] for key in predictions[0].keys()}
+        for batch in predictions:
+            for key in rows:
+                rows[key].append(batch[key])
+
+        df = pd.DataFrame({key: np.concatenate(vals) for key, vals in rows.items()})
+
+        grid_name = config_args.data.networks[0]
+        if args.command == "predict":
+            output_dir = args.output_path
+        else:
+            output_dir = os.path.join(artifacts_dir, "test")
         os.makedirs(output_dir, exist_ok=True)
-        csv_path = os.path.join(output_dir, "predictions.csv")
-        df.to_csv(csv_path, index=False)
-
-        print(f"Saved predictions to {csv_path}")
+        out_path = os.path.join(output_dir, f"{grid_name}_predictions.parquet")
+        df.to_parquet(out_path, index=False)
+        print(f"Saved predictions to {out_path}")
