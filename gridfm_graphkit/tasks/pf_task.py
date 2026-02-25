@@ -369,6 +369,8 @@ class PowerFlowTask(ReconstructionTask):
         residual_P, residual_Q = node_residuals_layer(
             P_in, Q_in, output["bus"], batch.x_dict["bus"],
         )
+        residual_P = torch.abs(residual_P)
+        residual_Q = torch.abs(residual_Q)
         residual_mva = torch.sqrt(residual_P**2 + residual_Q**2)
 
         bus_batch = batch.batch_dict["bus"]
@@ -392,7 +394,7 @@ class PowerFlowTask(ReconstructionTask):
         )
 
         return {
-            "scenario_id": scenario_ids.cpu().numpy(),
+            "scenario": scenario_ids.cpu().numpy(),
             "bus": local_bus_idx.cpu().numpy(),
             "pd_mw": bus_x[:, PD_H].cpu().numpy(),
             "qd_mvar": bus_x[:, QD_H].cpu().numpy(),
@@ -407,7 +409,7 @@ class PowerFlowTask(ReconstructionTask):
             "va": output["bus"][:, VA_OUT].detach().cpu().numpy(),
             "pg_mw": output["bus"][:, PG_OUT].detach().cpu().numpy(),
             "qg_mvar": output["bus"][:, QG_OUT].detach().cpu().numpy(),
-            "residual_p_mw": residual_P.detach().cpu().numpy(),
-            "residual_q_mvar": residual_Q.detach().cpu().numpy(),
-            "residual_mva": residual_mva.detach().cpu().numpy(),
+            "active res. (MW)": residual_P.detach().cpu().numpy(),
+            "reactive res. (MVar)": residual_Q.detach().cpu().numpy(),
+            "PBE": residual_mva.detach().cpu().numpy(),
         }
