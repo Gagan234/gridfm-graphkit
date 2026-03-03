@@ -367,7 +367,10 @@ class PowerFlowTask(ReconstructionTask):
         Pft, Qft = branch_flow_layer(output["bus"], bus_edge_index, bus_edge_attr)
         P_in, Q_in = node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
         residual_P, residual_Q = node_residuals_layer(
-            P_in, Q_in, output["bus"], batch.x_dict["bus"],
+            P_in,
+            Q_in,
+            output["bus"],
+            batch.x_dict["bus"],
         )
         residual_P = torch.abs(residual_P)
         residual_Q = torch.abs(residual_Q)
@@ -376,7 +379,10 @@ class PowerFlowTask(ReconstructionTask):
         bus_batch = batch.batch_dict["bus"]
         scenario_ids = batch["scenario_id"][bus_batch]
         local_bus_idx = torch.cat(
-            [torch.arange(c, device=bus_batch.device) for c in torch.bincount(bus_batch)]
+            [
+                torch.arange(c, device=bus_batch.device)
+                for c in torch.bincount(bus_batch)
+            ],
         )
 
         bus_x = batch.x_dict["bus"]

@@ -12,7 +12,7 @@ If you just need help or have a question, refer to [SUPPORT.md](SUPPORT.md).
 
 ## How to Contribute a Bug Fix or Change
 
-To contribute code to the project, first read over the [governance policies] page to understand the roles involved. 
+To contribute code to the project, first read over the [governance policies] page to understand the roles involved.
 
 Each contribution must meet the [PEP 8] and include..
 

@@ -23,7 +23,6 @@ from typing import List
 from lightning.pytorch.loggers import MLFlowLogger
 
 
-
 class LitGridHeteroDataModule(L.LightningDataModule):
     """
     PyTorch Lightning DataModule for power grid datasets.
@@ -118,7 +117,9 @@ class LitGridHeteroDataModule(L.LightningDataModule):
         saved_stats = None
         if self.normalizer_stats_path is not None:
             saved_stats = torch.load(
-                self.normalizer_stats_path, map_location="cpu", weights_only=True,
+                self.normalizer_stats_path,
+                map_location="cpu",
+                weights_only=True,
             )
             print(f"Loaded normalizer stats from {self.normalizer_stats_path}")
 
@@ -192,13 +193,16 @@ class LitGridHeteroDataModule(L.LightningDataModule):
 
             # Extract scenario IDs for each split
             train_scenario_ids = self._extract_scenario_ids(
-                train_dataset, subset_indices,
+                train_dataset,
+                subset_indices,
             )
             val_scenario_ids = self._extract_scenario_ids(
-                val_dataset, subset_indices,
+                val_dataset,
+                subset_indices,
             )
             test_scenario_ids = self._extract_scenario_ids(
-                test_dataset, subset_indices,
+                test_dataset,
+                subset_indices,
             )
 
             # Fit normalizer: restore from saved stats only for fit_on_train
@@ -215,9 +219,14 @@ class LitGridHeteroDataModule(L.LightningDataModule):
                 data_normalizer.fit_from_dict(saved_stats[network])
             else:
                 self._fit_normalizer(
-                    data_normalizer, data_path_network, network,
-                    train_scenario_ids, val_scenario_ids, test_scenario_ids,
-                    num_scenarios, saved_stats,
+                    data_normalizer,
+                    data_path_network,
+                    network,
+                    train_scenario_ids,
+                    val_scenario_ids,
+                    test_scenario_ids,
+                    num_scenarios,
+                    saved_stats,
                 )
 
             self.train_datasets.append(train_dataset)
@@ -233,9 +242,7 @@ class LitGridHeteroDataModule(L.LightningDataModule):
 
         # Save scenario splits (rank 0 only in DDP)
         is_rank0 = (
-            not dist.is_available()
-            or not dist.is_initialized()
-            or dist.get_rank() == 0
+            not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0
         )
         if is_rank0 and self.trainer is not None and self.trainer.logger is not None:
             logger = self.trainer.logger
@@ -253,9 +260,14 @@ class LitGridHeteroDataModule(L.LightningDataModule):
 
     @staticmethod
     def _fit_normalizer(
-        data_normalizer, data_path_network, network,
-        train_scenario_ids, val_scenario_ids, test_scenario_ids,
-        num_scenarios, saved_stats,
+        data_normalizer,
+        data_path_network,
+        network,
+        train_scenario_ids,
+        val_scenario_ids,
+        test_scenario_ids,
+        num_scenarios,
+        saved_stats,
     ):
         """
         Fit normalizer from raw data. In distributed settings, only rank 0
@@ -275,16 +287,22 @@ class LitGridHeteroDataModule(L.LightningDataModule):
                         f"No saved normalizer stats found for network '{network}'. "
                         "Fitting from data instead.",
                     )
-                print(f"Fitting normalizer on train set ({len(train_scenario_ids)} scenarios)")
+                print(
+                    f"Fitting normalizer on train set ({len(train_scenario_ids)} scenarios)",
+                )
                 stats = data_normalizer.fit(raw_data_path, train_scenario_ids)
             elif data_normalizer.fit_strategy == "fit_on_dataset":
-                all_scenario_ids = train_scenario_ids + val_scenario_ids + test_scenario_ids
+                all_scenario_ids = (
+                    train_scenario_ids + val_scenario_ids + test_scenario_ids
+                )
                 assert np.unique(all_scenario_ids).shape[0] == num_scenarios
-                print(f"Fitting normalizer on full dataset ({len(all_scenario_ids)} scenarios)")
+                print(
+                    f"Fitting normalizer on full dataset ({len(all_scenario_ids)} scenarios)",
+                )
                 stats = data_normalizer.fit(raw_data_path, all_scenario_ids)
             else:
                 raise ValueError(
-                    f"Unknown fit_strategy: {data_normalizer.fit_strategy}"
+                    f"Unknown fit_strategy: {data_normalizer.fit_strategy}",
                 )
 
         if is_distributed:
@@ -296,7 +314,8 @@ class LitGridHeteroDataModule(L.LightningDataModule):
 
     @staticmethod
     def _extract_scenario_ids(
-        subset: Subset, subset_indices: List[int],
+        subset: Subset,
+        subset_indices: List[int],
     ) -> List[int]:
         """
         Extract original scenario IDs from a Subset.

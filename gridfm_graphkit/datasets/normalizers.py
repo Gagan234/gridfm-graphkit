@@ -2,7 +2,7 @@ from gridfm_graphkit.io.registries import NORMALIZERS_REGISTRY
 import os
 import torch
 from abc import ABC, abstractmethod
-from typing import Any, Optional, List
+from typing import List
 import pandas as pd
 import numpy as np
 from torch_geometric.data import HeteroData
@@ -140,8 +140,11 @@ class HeteroDataMVANormalizer(Normalizer):
         """
         bus_data = pd.read_parquet(os.path.join(data_path, "bus_data.parquet"))
         gen_data = pd.read_parquet(os.path.join(data_path, "gen_data.parquet"))
-        
-        assert bus_data.scenario.min() == 0 and bus_data.scenario.max() == len(bus_data.scenario.unique()) - 1
+
+        assert (
+            bus_data.scenario.min() == 0
+            and bus_data.scenario.max() == len(bus_data.scenario.unique()) - 1
+        )
 
         bus_data = bus_data[bus_data["scenario"].isin(scenario_ids)]
         gen_data = gen_data[gen_data["scenario"].isin(scenario_ids)]
@@ -198,7 +201,7 @@ class HeteroDataMVANormalizer(Normalizer):
         data.y_dict["bus"][:, QD_H] /= self.baseMVA
         data.y_dict["bus"][:, QG_H] /= self.baseMVA
         data.y_dict["bus"][:, VA_H] *= torch.pi / 180.0
-        
+
         # --- Generator input normalization --- PG, MIN_PG, MAX_PG, C0, C1, C2 (6)
         data.x_dict["gen"][:, PG_H] /= self.baseMVA
         data.x_dict["gen"][:, MIN_PG] /= self.baseMVA
@@ -255,8 +258,12 @@ class HeteroDataMVANormalizer(Normalizer):
         data.x_dict["bus"][:, QG_H] *= self.baseMVA
         data.x_dict["bus"][:, MIN_QG_H] *= self.baseMVA
         data.x_dict["bus"][:, MAX_QG_H] *= self.baseMVA
-        data.x_dict["bus"][:, GS] *= self.baseMVA  # -> physical units (not original p.u.)
-        data.x_dict["bus"][:, BS] *= self.baseMVA  # -> physical units (not original p.u.)
+        data.x_dict["bus"][:, GS] *= (
+            self.baseMVA
+        )  # -> physical units (not original p.u.)
+        data.x_dict["bus"][:, BS] *= (
+            self.baseMVA
+        )  # -> physical units (not original p.u.)
         data.x_dict["bus"][:, VN_KV] *= self.vn_kv_max
 
         # -------- BUS LABEL INVERSE NORMALIZATION --------
@@ -279,7 +286,7 @@ class HeteroDataMVANormalizer(Normalizer):
         )
 
         # -------- GENERATOR LABEL INVERSE NORMALIZATION --------
-        data.y_dict["gen"][:, PG_H] *= self.baseMVA 
+        data.y_dict["gen"][:, PG_H] *= self.baseMVA
 
         # -------- EDGE INPUT INVERSE NORMALIZATION --------
         data.edge_attr_dict[("bus", "connects", "bus")][:, P_E] *= self.baseMVA
@@ -321,7 +328,11 @@ class HeteroDataPerSampleMVANormalizer(Normalizer):
     fit_strategy = "fit_on_dataset"
 
     def __init__(self, args):
-        self.baseMVA_orig = getattr(args.data, "baseMVA", 100)  # casefile base MVA (for GS/BS scaling)
+        self.baseMVA_orig = getattr(
+            args.data,
+            "baseMVA",
+            100,
+        )  # casefile base MVA (for GS/BS scaling)
         self._baseMVA_lookup = None  # tensor indexed by scenario_id
         self._vn_kv_max_lookup = None
         self._scenario_ids = None  # scenario ids that were fitted (for save/load)
@@ -408,7 +419,7 @@ class HeteroDataPerSampleMVANormalizer(Normalizer):
         """
         if self._baseMVA_lookup is None:
             raise ValueError("Normalizer not fitted or lookups not built")
-        
+
         device = data.x_dict["bus"].device
         dtype = data.x_dict["bus"].dtype
 
@@ -441,19 +452,22 @@ class HeteroDataPerSampleMVANormalizer(Normalizer):
         g = baseMVA_lookup[sid_gen]
         e_b = baseMVA_lookup[sid_edge]
 
-        b_orig_val = self.baseMVA_orig if isinstance(self.baseMVA_orig, (int, float)) else self.baseMVA_orig.item()
+        b_orig_val = (
+            self.baseMVA_orig
+            if isinstance(self.baseMVA_orig, (int, float))
+            else self.baseMVA_orig.item()
+        )
         b_orig = torch.full_like(b, b_orig_val)
         e_b_orig = torch.full_like(e_b, b_orig_val)
 
         return b, b_orig, vn, g, e_b, e_b_orig
-
 
     def transform(self, data: HeteroData):
         """Apply per-unit normalization using per-scenario baseMVA/vn_kv_max (same formulas as base MVA normalizer)."""
         if self._baseMVA_lookup is None:
             raise ValueError("Normalizer not fitted or lookups not loaded")
         b, b_orig, vn, g, e_b, e_b_orig = self._per_node_mva(data)
-        # --- Bus input normalization --- 
+        # --- Bus input normalization ---
         data.x_dict["bus"][:, PD_H] /= b
         data.x_dict["bus"][:, QD_H] /= b
         data.x_dict["bus"][:, QG_H] /= b
@@ -469,7 +483,7 @@ class HeteroDataPerSampleMVANormalizer(Normalizer):
         data.y_dict["bus"][:, QD_H] /= b
         data.y_dict["bus"][:, QG_H] /= b
         data.y_dict["bus"][:, VA_H] *= torch.pi / 180.0
-        
+
         # --- Generator input normalization ---
         data.x_dict["gen"][:, PG_H] /= g
         data.x_dict["gen"][:, MIN_PG] /= g
@@ -504,7 +518,9 @@ class HeteroDataPerSampleMVANormalizer(Normalizer):
             raise ValueError("Normalizer not fitted or lookups not loaded")
         if not data.is_normalized.all():
             raise ValueError("Attempting to denormalize data which is not normalized")
-        b, _, vn, g, e_b, _ = self._per_node_mva(data) # b_orig and e_b_orig are not used
+        b, _, vn, g, e_b, _ = self._per_node_mva(
+            data,
+        )  # b_orig and e_b_orig are not used
 
         # -------- BUS INPUT INVERSE NORMALIZATION --------
         # NOTE: VA (bus input & label) are intentionally kept in
@@ -559,9 +575,6 @@ class HeteroDataPerSampleMVANormalizer(Normalizer):
         data.edge_attr_dict[("bus", "connects", "bus")][:, RATE_A] *= e_b
         data.is_normalized = False
 
-
-
-
     def inverse_output(self, output, batch):
         """
         Denormalize model output (bus PG/QG, gen PG) using per-sample baseMVA from lookups.
@@ -573,7 +586,10 @@ class HeteroDataPerSampleMVANormalizer(Normalizer):
         bus_batch = getattr(batch["bus"], "batch", None)
 
         # Move lookup tensor to correct device
-        baseMVA_lookup = self._baseMVA_lookup.to(device=bus_output.device, dtype=bus_output.dtype)
+        baseMVA_lookup = self._baseMVA_lookup.to(
+            device=bus_output.device,
+            dtype=bus_output.dtype,
+        )
 
         if bus_batch is not None:
             # Batched: scenario_id per node via batch index; lookup base MVA per node
@@ -600,4 +616,3 @@ class HeteroDataPerSampleMVANormalizer(Normalizer):
             "baseMVA": self._baseMVA_lookup[self._scenario_ids],
             "vn_kv_max": self._vn_kv_max_lookup[self._scenario_ids],
         }
-   

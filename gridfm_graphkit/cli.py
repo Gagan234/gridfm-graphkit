@@ -5,7 +5,6 @@ import numpy as np
 import os
 import yaml
 import torch
-import random
 import pandas as pd
 
 from gridfm_graphkit.io.param_handler import get_task
@@ -57,7 +56,9 @@ def main_cli(args):
 
     normalizer_stats_path = getattr(args, "normalizer_stats", None)
     litGrid = LitGridHeteroDataModule(
-        config_args, args.data_path, normalizer_stats_path=normalizer_stats_path,
+        config_args,
+        args.data_path,
+        normalizer_stats_path=normalizer_stats_path,
     )
     model = get_task(config_args, litGrid.data_normalizers)
     if args.command != "train":
@@ -86,12 +87,14 @@ def main_cli(args):
             num_nodes=1,
             log_every_n_steps=1,
             default_root_dir=args.log_dir,
-
         )
         test_trainer.test(model=model, datamodule=litGrid)
 
     artifacts_dir = os.path.join(
-        logger.save_dir, logger.experiment_id, logger.run_id, "artifacts"
+        logger.save_dir,
+        logger.experiment_id,
+        logger.run_id,
+        "artifacts",
     )
 
     compute_dc_ac = getattr(args, "compute_dc_ac_metrics", False)
@@ -105,7 +108,9 @@ def main_cli(args):
     save_output = getattr(args, "save_output", False) or args.command == "predict"
     if save_output:
         if len(config_args.data.networks) > 1:
-            raise NotImplementedError("Predict/save_output with multiple grids is not yet supported.")
+            raise NotImplementedError(
+                "Predict/save_output with multiple grids is not yet supported.",
+            )
 
         predict_trainer = L.Trainer(
             logger=logger,

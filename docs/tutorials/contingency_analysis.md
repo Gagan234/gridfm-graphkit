@@ -8,7 +8,7 @@ Contingency analysis is a critical process in power system operations used to as
 
 ## Dataset Generation and Model Evaluation
 
-The dataset used in this study originates from the Texas transmission grid, which includes approximately 2,000 nodes. Using the contingency mode of the `gridfm-datakit`, we simulated N-2 contingencies by removing up to two transmission lines at a time. For each scenario, we first solved the optimal power flow (OPF) problem to determine the generation dispatch. Then, we applied the contingency by removing lines and re-solved the power flow to observe the resulting grid state.
+The dataset used in this study originates from the Texas transmission grid, which includes approximately 2,000 nodes. Using the contingency mode of the `gridfm-datakit`, we simulated N-2 contingencies by removing up to two transmission lines at a time. For each scenario, we first solved the optimal power flow (OPF) problem to determine the generation dispatch. Then, we applied the contingency by removing lines and re-solved the power flow to observse the resulting grid state.
 
 This process generated around 100,000 unique scenarios. Our model, **GridFMv0.1**, was fine-tuned on this dataset to predict power flow outcomes. For demonstration purposes, we selected a subsample of 10 scenarios. The `gridfm-datakit` also computed DC power flow results, enabling a comparison between GridFMv0.1 predictions and traditional DC power flow estimates, specifically in terms of line loading accuracy.
 
@@ -169,15 +169,15 @@ assert (removed_lines == removed_lines_dc).all()
 assert removed_lines.sum() == removed_lines_pred.sum()
 assert removed_lines.sum() == removed_lines_dc.sum()
 
-overloadings = loadings[removed_lines == False] > 1.0
-overloadings_pred = loadings_pred[removed_lines == False] > 1.0
-overloadings_dc = loadings_dc[removed_lines == False] > 1.0
+overloadings = loadings[not removed_lines] > 1.0
+overloadings_pred = loadings_pred[not removed_lines] > 1.0
+overloadings_dc = loadings_dc[not removed_lines] > 1.0
 ```
 
 ## Histogram of true line loadings
 
 ```python
-plt.hist(loadings[removed_lines == False], bins=100)
+plt.hist(loadings[not removed_lines], bins=100)
 plt.xlabel("Line Loadings")
 plt.ylabel("Frequency")
 # log scale
@@ -194,7 +194,7 @@ plt.show()
 
 ```python
 # Valid lines
-valid_mask = removed_lines == False
+valid_mask = not removed_lines
 
 # Extract valid values
 true_vals = loadings[valid_mask]
@@ -238,9 +238,9 @@ plot_cm(TN_dc, FP_dc, FN_dc, TP_dc, "DC", "DC Solver")
 ```python
 # Histograms of loadings
 plot_loading_predictions(
-    loadings_pred[removed_lines == False],
-    loadings_dc[removed_lines == False],
-    loadings[removed_lines == False],
+    loadings_pred[not removed_lines],
+    loadings_dc[not removed_lines],
+    loadings[not removed_lines],
     prediction_dir,
     label_plot,
 )
@@ -267,14 +267,14 @@ bins = np.arange(0, 2.2, 0.2)
 mse_pred = []
 mse_dc = []
 for i in range(len(bins) - 1):
-    idx_in_bins = (loadings[removed_lines == False] > bins[i]) & (
-        loadings[removed_lines == False] < bins[i + 1]
+    idx_in_bins = (loadings[not removed_lines] > bins[i]) & (
+        loadings[not removed_lines] < bins[i + 1]
     )
     mse_pred.append(
         np.mean(
             (
-                loadings_pred[removed_lines == False][idx_in_bins]
-                - loadings[removed_lines == False][idx_in_bins]
+                loadings_pred[not removed_lines][idx_in_bins]
+                - loadings[not removed_lines][idx_in_bins]
             )
             ** 2
         )
@@ -282,8 +282,8 @@ for i in range(len(bins) - 1):
     mse_dc.append(
         np.mean(
             (
-                loadings_dc[removed_lines == False][idx_in_bins]
-                - loadings[removed_lines == False][idx_in_bins]
+                loadings_dc[not removed_lines][idx_in_bins]
+                - loadings[not removed_lines][idx_in_bins]
             )
             ** 2
         )

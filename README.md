@@ -51,7 +51,7 @@ pip install -e .[dev,test]
 
 # CLI commands
 
-An interface to train, fine-tune, and evaluate GridFM models using configurable YAML files and MLflow tracking.
+Interface to train, fine-tune, evaluate, and run inference on GridFM models using YAML configs and MLflow tracking.
 
 ```bash
 gridfm_graphkit <command> [OPTIONS]
@@ -59,7 +59,7 @@ gridfm_graphkit <command> [OPTIONS]
 
 Available commands:
 
-* `train` – Train a new model from scrathc
+* `train` - Train a new model from scratch
 * `finetune` – Fine-tune an existing pre-trained model
 * `evaluate` – Evaluate model performance on a dataset
 * `predict` – Run inference and save predictions
@@ -76,11 +76,11 @@ gridfm_graphkit train --config path/to/config.yaml
 
 | Argument         | Type   | Description                                                      | Default |
 | ---------------- | ------ | ---------------------------------------------------------------- | ------- |
-| `--config`       | `str`  | **Required**. Path to the training configuration YAML file.    | `None`  |
-| `--exp_name`     | `str`  | **Optional**. MLflow experiment name.                            | `timestamp`  |
-| `--run_name`     | `str`  | **Optional**. MLflow run name.                                   | `run`  |
-| `--log_dir  `    | `str`  | **Optional**. MLflow logging directory.                              | `mlruns`  |
-| `--data_path`    | `str`  | **Optional**. Root dataset directory.                            | `data`  |
+| `--config`       | `str`  | **Required**. Path to the training configuration YAML file.      | `None`       |
+| `--exp_name`     | `str`  | MLflow experiment name.                                           | `timestamp`  |
+| `--run_name`     | `str`  | MLflow run name.                                                  | `run`        |
+| `--log_dir`      | `str`  | MLflow tracking/logging directory.                                | `mlruns`     |
+| `--data_path`    | `str`  | Root dataset directory.                                           | `data`       |
 
 ### Examples
 
@@ -95,7 +95,7 @@ gridfm_graphkit train --config examples/config/case30_ieee_base.yaml --data_path
 ## Fine-Tuning Models
 
 ```bash
-gridfm_graphkit finetune --config path/to/config.yaml --model_path path/to/model.pth
+gridfm_graphkit finetune --config path/to/config.yaml --model_path path/to/model.pt
 ```
 
 ### Arguments
@@ -103,7 +103,7 @@ gridfm_graphkit finetune --config path/to/config.yaml --model_path path/to/model
 | Argument       | Type  | Description                                     | Default   |
 | -------------- | ----- | ----------------------------------------------- | --------- |
 | `--config`     | `str` | **Required**. Fine-tuning configuration file.   | `None`    |
-| `--model_path` | `str` | **Required**. Path to a pre-trained model file. | `None`    |
+| `--model_path` | `str` | **Required**. Path to a pre-trained model state dict. | `None`    |
 | `--exp_name`   | `str` | MLflow experiment name.                         | timestamp |
 | `--run_name`   | `str` | MLflow run name.                                | `run`     |
 | `--log_dir`    | `str` | MLflow logging directory.                       | `mlruns`  |
@@ -115,7 +115,7 @@ gridfm_graphkit finetune --config path/to/config.yaml --model_path path/to/model
 ## Evaluating Models
 
 ```bash
-gridfm_graphkit evaluate --config path/to/eval.yaml --model_path path/to/model.pth
+gridfm_graphkit evaluate --config path/to/eval.yaml --model_path path/to/model.pt
 ```
 
 ### Arguments
@@ -123,12 +123,14 @@ gridfm_graphkit evaluate --config path/to/eval.yaml --model_path path/to/model.p
 | Argument              | Type  | Description                                                                                                   | Default   |
 | --------------------- | ----- | ------------------------------------------------------------------------------------------------------------- | --------- |
 | `--config`            | `str` | **Required**. Path to evaluation config.                                                                      | `None`    |
-| `--model_path`        | `str` | Path to the trained model file.                                                                               | `None`    |
+| `--model_path`        | `str` | Path to the trained model state dict.                                                                         | `None`    |
 | `--normalizer_stats`  | `str` | Path to `normalizer_stats.pt` from a training run. Restores `fit_on_train` normalizers from saved statistics instead of re-fitting on the current data split. | `None`    |
 | `--exp_name`          | `str` | MLflow experiment name.                                                                                       | timestamp |
 | `--run_name`          | `str` | MLflow run name.                                                                                              | `run`     |
 | `--log_dir`           | `str` | MLflow logging directory.                                                                                     | `mlruns`  |
 | `--data_path`         | `str` | Dataset directory.                                                                                            | `data`    |
+| `--compute_dc_ac_metrics` | `flag` | Compute ground-truth AC/DC power balance metrics on the test split.                                      | `False`   |
+| `--save_output`       | `flag` | Save predictions as `<grid_name>_predictions.parquet` under MLflow artifacts (`.../artifacts/test`).       | `False`   |
 
 ### Example with saved normalizer stats
 
@@ -149,7 +151,7 @@ gridfm_graphkit evaluate \
 ## Running Predictions
 
 ```bash
-gridfm_graphkit predict --config path/to/config.yaml --model_path path/to/model.pth
+gridfm_graphkit predict --config path/to/config.yaml --model_path path/to/model.pt
 ```
 
 ### Arguments
@@ -157,12 +159,19 @@ gridfm_graphkit predict --config path/to/config.yaml --model_path path/to/model.
 | Argument              | Type  | Description                                                                                                   | Default   |
 | --------------------- | ----- | ------------------------------------------------------------------------------------------------------------- | --------- |
 | `--config`            | `str` | **Required**. Path to prediction config file.                                                                 | `None`    |
-| `--model_path`        | `str` | Path to the trained model file.                                                                               | `None`    |
+| `--model_path`        | `str` | Path to the trained model state dict.                                                                         | `None`    |
 | `--normalizer_stats`  | `str` | Path to `normalizer_stats.pt` from a training run. Restores `fit_on_train` normalizers from saved statistics. | `None`    |
 | `--exp_name`          | `str` | MLflow experiment name.                                                                                       | timestamp |
 | `--run_name`          | `str` | MLflow run name.                                                                                              | `run`     |
 | `--log_dir`           | `str` | MLflow logging directory.                                                                                     | `mlruns`  |
 | `--data_path`         | `str` | Dataset directory.                                                                                            | `data`    |
-| `--output_path`       | `str` | Directory where predictions are saved.                                                                        | `data`    |
+| `--output_path`       | `str` | Directory where predictions are saved as `<grid_name>_predictions.parquet`.                                  | `data`    |
+
+Use built-in help for full command details:
+
+```bash
+gridfm_graphkit --help
+gridfm_graphkit <command> --help
+```
 
 ---

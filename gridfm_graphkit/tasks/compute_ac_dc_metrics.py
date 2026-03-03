@@ -19,22 +19,27 @@ def _load_test_data(data_dir: str, test_scenario_ids: list[int]):
     partition_filter = [("scenario_partition", "in", partitions)]
 
     bus_df = pd.read_parquet(
-        os.path.join(data_dir, "bus_data.parquet"), filters=partition_filter
+        os.path.join(data_dir, "bus_data.parquet"),
+        filters=partition_filter,
     )
     branch_df = pd.read_parquet(
-        os.path.join(data_dir, "branch_data.parquet"), filters=partition_filter
+        os.path.join(data_dir, "branch_data.parquet"),
+        filters=partition_filter,
     )
     runtime_df = pd.read_parquet(
-        os.path.join(data_dir, "runtime_data.parquet"), filters=partition_filter
+        os.path.join(data_dir, "runtime_data.parquet"),
+        filters=partition_filter,
     )
 
     bus_df = bus_df[bus_df["scenario"].isin(test_set)].reset_index(drop=True)
     branch_df = branch_df[branch_df["scenario"].isin(test_set)].reset_index(drop=True)
-    runtime_df = runtime_df[runtime_df["scenario"].isin(test_set)].reset_index(drop=True)
+    runtime_df = runtime_df[runtime_df["scenario"].isin(test_set)].reset_index(
+        drop=True,
+    )
 
     print(
         f"  Loaded {len(bus_df)} bus rows, {len(branch_df)} branch rows, "
-        f"{len(runtime_df)} runtime rows for {len(test_set)} test scenarios"
+        f"{len(runtime_df)} runtime rows for {len(test_set)} test scenarios",
     )
     return bus_df, branch_df, runtime_df
 
@@ -44,9 +49,7 @@ def _compute_residual_stats(balance_df: pd.DataFrame, dc: bool) -> dict:
 
     if dc:
         P_mis = balance_df["P_mis_dc"].to_numpy()
-        nan_scenarios = int(
-            grouped["P_mis_dc"].apply(lambda x: x.isna().all()).sum()
-        )
+        nan_scenarios = int(grouped["P_mis_dc"].apply(lambda x: x.isna().all()).sum())
         return {
             "Avg. active res. (MW)": float(np.nanmean(np.abs(P_mis))),
             "DC NaN scenarios": nan_scenarios,
@@ -58,10 +61,7 @@ def _compute_residual_stats(balance_df: pd.DataFrame, dc: bool) -> dict:
 
     pbe_per_scenario_mean = grouped.apply(
         lambda g: np.nanmean(
-            np.sqrt(
-                g["P_mis_ac"].to_numpy() ** 2
-                + g["Q_mis_ac"].to_numpy() ** 2
-            )
+            np.sqrt(g["P_mis_ac"].to_numpy() ** 2 + g["Q_mis_ac"].to_numpy() ** 2),
         ),
         include_groups=False,
     )
@@ -84,16 +84,16 @@ def _compute_runtime_stats(runtime_df: pd.DataFrame) -> dict:
         valid = rt_ms[~np.isnan(rt_ms)]
 
         results[f"runtime_{mode}_mean_ms_with_{NUM_PROCESSES}_cores"] = float(
-            np.mean(valid)
+            np.mean(valid),
         )
         results[f"runtime_{mode}_median_ms_with_{NUM_PROCESSES}_cores"] = float(
-            np.median(valid)
+            np.median(valid),
         )
         results[f"runtime_{mode}_std_ms_with_{NUM_PROCESSES}_cores"] = float(
-            np.std(valid)
+            np.std(valid),
         )
         results[f"runtime_{mode}_max_ms_with_{NUM_PROCESSES}_cores"] = float(
-            np.max(valid)
+            np.max(valid),
         )
 
     return results
@@ -117,7 +117,9 @@ def compute_ac_dc_metrics(
     """
 
     splits_json = os.path.join(
-        artifacts_dir, "stats", f"{grid_name}_scenario_splits.json"
+        artifacts_dir,
+        "stats",
+        f"{grid_name}_scenario_splits.json",
     )
     if not os.path.exists(splits_json):
         print(f"  Skipping: no splits JSON found at {splits_json}")
@@ -175,32 +177,32 @@ def compute_ac_dc_metrics(
     os.makedirs(out_dir, exist_ok=True)
 
     # AC: active + reactive
-    ac_bus_residuals = balance_ac[
-        ["scenario", "bus", "P_mis_ac", "Q_mis_ac"]
-    ].copy().rename(
-    columns={
-        "P_mis_ac": "active res. (MW)",
-        "Q_mis_ac": "reactive res. (MVar)",
-    }
-)
-    ac_residuals_path = os.path.join(
-        out_dir, f"{grid_name}_ac_bus_residuals.parquet"
+    ac_bus_residuals = (
+        balance_ac[["scenario", "bus", "P_mis_ac", "Q_mis_ac"]]
+        .copy()
+        .rename(
+            columns={
+                "P_mis_ac": "active res. (MW)",
+                "Q_mis_ac": "reactive res. (MVar)",
+            },
+        )
     )
+    ac_residuals_path = os.path.join(out_dir, f"{grid_name}_ac_bus_residuals.parquet")
     ac_bus_residuals.to_parquet(ac_residuals_path, index=False)
     print(f"  AC per-bus residuals saved to {ac_residuals_path}")
 
     # DC: active only
-    dc_bus_residuals = balance_dc[
-        ["scenario", "bus", "P_mis_dc"]
-    ].copy().rename(
-    columns={
-        "P_mis_dc": "DC active res. (MW)",
-    }
-)
-
-    dc_residuals_path = os.path.join(
-        out_dir, f"{grid_name}_dc_bus_residuals.parquet"
+    dc_bus_residuals = (
+        balance_dc[["scenario", "bus", "P_mis_dc"]]
+        .copy()
+        .rename(
+            columns={
+                "P_mis_dc": "DC active res. (MW)",
+            },
+        )
     )
+
+    dc_residuals_path = os.path.join(out_dir, f"{grid_name}_dc_bus_residuals.parquet")
     dc_bus_residuals.to_parquet(dc_residuals_path, index=False)
     print(f"  DC per-bus residuals saved to {dc_residuals_path}")
 
@@ -217,9 +219,7 @@ def compute_ac_dc_metrics(
     for key, val in runtime_stats.items():
         rows.append({"Metric": key, "Value": val})
 
-    metrics_path = os.path.join(
-        out_dir, f"{grid_name}_ac_dc_metrics.csv"
-    )
+    metrics_path = os.path.join(out_dir, f"{grid_name}_ac_dc_metrics.csv")
     pd.DataFrame(rows).to_csv(metrics_path, index=False)
 
     print(f"  Aggregated metrics saved to {metrics_path}")

@@ -43,6 +43,7 @@ class HeteroGridDatasetDisk(Dataset):
         load_scenarios_path = osp.join(self.processed_dir, "load_scenarios.pt")
         if osp.exists(load_scenarios_path):
             self.load_scenarios = torch.load(load_scenarios_path, weights_only=True)
+
     @property
     def raw_file_names(self):
         return ["bus_data.parquet", "gen_data.parquet", "branch_data.parquet"]
@@ -66,8 +67,11 @@ class HeteroGridDatasetDisk(Dataset):
         bus_data = pd.read_parquet(osp.join(self.raw_dir, "bus_data.parquet"))
         gen_data = pd.read_parquet(osp.join(self.raw_dir, "gen_data.parquet"))
         branch_data = pd.read_parquet(osp.join(self.raw_dir, "branch_data.parquet"))
-        
-        assert bus_data['scenario'].min() == 0 and bus_data['scenario'].max() == len(bus_data['scenario'].unique()) - 1
+
+        assert (
+            bus_data["scenario"].min() == 0
+            and bus_data["scenario"].max() == len(bus_data["scenario"].unique()) - 1
+        )
 
         load_scenarios = torch.tensor(
             bus_data.groupby("scenario", sort=True)["load_scenario_idx"].first().values,
@@ -80,7 +84,6 @@ class HeteroGridDatasetDisk(Dataset):
             .reset_index()
         )
         bus_data = bus_data.merge(agg_gen, on=["scenario", "bus"], how="left").fillna(0)
-
 
         done_path = osp.join(self.processed_dir, self.processed_done_file)
         if osp.exists(done_path):
@@ -104,8 +107,7 @@ class HeteroGridDatasetDisk(Dataset):
             "BS",
             "vn_kv",
         ]
-       
-        
+
         gen_features = [
             "p_mw",
             "min_p_mw",
@@ -115,7 +117,7 @@ class HeteroGridDatasetDisk(Dataset):
             "cp2_eur_per_mw2",
             "in_service",
         ]
-        
+
         common_branch_features = ["tap", "ang_min", "ang_max", "rate_a", "br_status"]
         forward_branch_features = [
             "pf",
@@ -165,8 +167,7 @@ class HeteroGridDatasetDisk(Dataset):
 
             data["bus"].y = data["bus"].x[:, : (VA_H + 1)].clone()
             data["gen"].y = data["gen"].x[:, : (PG_H + 1)].clone()
-            
-    
+
             # Bus-Bus edges
             branch_df = branch_groups.get_group(scenario)
 
