@@ -3,7 +3,6 @@ from datetime import datetime
 from gridfm_graphkit.cli import main_cli
 
 
-
 def main():
     parser = argparse.ArgumentParser(
         prog="gridfm_graphkit",
