@@ -41,7 +41,6 @@ theme:
     - navigation.instant.progress
     - content.code.copy
     - content.code.select
-
   logo: figs/KIT.png
   favicon: figs/KIT.png
 
