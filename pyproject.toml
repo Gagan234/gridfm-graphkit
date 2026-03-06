@@ -53,6 +53,7 @@ dependencies = [
     "torchvision>=0.22.1",
     "lightning",
     "seaborn",
+    "urllib3>=2.6.0",
     "gridfm-datakit>=1.0.2",
 ]
 
