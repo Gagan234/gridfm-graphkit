@@ -1,4 +1,4 @@
-from gridfm_graphkit.datasets.powergrid_datamodule import LitGridDataModule
+from gridfm_graphkit.datasets.hetero_powergrid_datamodule import LitGridHeteroDataModule
 from gridfm_graphkit.io.param_handler import NestedNamespace
 import yaml
 import copy
@@ -9,20 +9,18 @@ with open("tests/config/datamodule_test_base_config.yaml") as f:
 
 
 @pytest.mark.parametrize(
-    "normalization",
-    ["minmax", "standard", "baseMVAnorm", "identity"],
+    "task",
+    ["PowerFlow", "OptimalPowerFlow", "StateEstimation"],
 )
-@pytest.mark.parametrize("mask_type", ["rnd", "pf", "opf", "none"])
-def test_dataloaders(normalization, mask_type):
+def test_dataloaders(task):
     cfg = copy.deepcopy(BASE_CONFIG)
 
     # Override values
-    cfg["data"]["normalization"] = normalization
-    cfg["data"]["mask_type"] = mask_type
+    cfg["task"]["task_name"] = task
 
     args = NestedNamespace(**cfg)
 
-    dm = LitGridDataModule(args, data_dir="tests/data")
+    dm = LitGridHeteroDataModule(args, data_dir="tests/data")
 
     # Lightning will inject trainer, but for testing we can fake it
     class DummyTrainer:

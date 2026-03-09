@@ -40,17 +40,21 @@ classifiers = [
 
 
 dependencies = [
-    "torch>2.0",
-    "torch-geometric",
-    "mlflow",
-    "nbformat",
-    "networkx",
-    "numpy",
-    "pandas",
-    "plotly",
-    "pyyaml",
+    "mlflow>=3.1.0",
+    "nbformat>=5.10.4",
+    "networkx>=3.4.2",
+    "numpy>=2.2.6",
+    "pandas>=2.3.0",
+    "plotly>=6.1.2",
+    "pyyaml>=6.0.2",
+    "torch>=2.7.1,<2.9",
+    "torch-geometric>=2.6.1",
+    "torchaudio>=2.7.1",
+    "torchvision>=0.22.1",
     "lightning",
     "seaborn",
+    "urllib3>=2.6.0",
+    "gridfm-datakit>=1.0.2",
 ]
 
 [project.optional-dependencies]

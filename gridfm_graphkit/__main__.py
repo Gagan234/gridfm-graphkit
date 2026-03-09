@@ -34,15 +34,38 @@ def main():
         help="Evaluate model performance",
     )
     evaluate_parser.add_argument("--model_path", type=str, default=None)
+    evaluate_parser.add_argument(
+        "--normalizer_stats",
+        type=str,
+        default=None,
+        help="Path to normalizer_stats.pt from a training run. "
+        "Restores normalizers from saved stats instead of re-fitting.",
+    )
     evaluate_parser.add_argument("--config", type=str, required=True)
     evaluate_parser.add_argument("--exp_name", type=str, default=exp_name)
     evaluate_parser.add_argument("--run_name", type=str, default="run")
     evaluate_parser.add_argument("--log_dir", type=str, default="mlruns")
     evaluate_parser.add_argument("--data_path", type=str, default="data")
-
+    evaluate_parser.add_argument(
+        "--compute_dc_ac_metrics",
+        action="store_true",
+        help="Compute ground-truth AC/DC power balance metrics on the test split.",
+    )
+    evaluate_parser.add_argument(
+        "--save_output",
+        action="store_true",
+        help="Save per-bus predictions CSV via the predict step.",
+    )
     # ---- PREDICT SUBCOMMAND ----
     predict_parser = subparsers.add_parser("predict", help="Evaluate model performance")
     predict_parser.add_argument("--model_path", type=str, required=None)
+    predict_parser.add_argument(
+        "--normalizer_stats",
+        type=str,
+        default=None,
+        help="Path to normalizer_stats.pt from a training run. "
+        "Restores normalizers from saved stats instead of re-fitting.",
+    )
     predict_parser.add_argument("--config", type=str, required=True)
     predict_parser.add_argument("--exp_name", type=str, default=exp_name)
     predict_parser.add_argument("--run_name", type=str, default="run")

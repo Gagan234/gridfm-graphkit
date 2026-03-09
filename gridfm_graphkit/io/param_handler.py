@@ -1,17 +1,17 @@
-from gridfm_graphkit.training.loss import (
-    PBELoss,
-    MaskedMSELoss,
-    SCELoss,
-    MixedLoss,
-    MSELoss,
-)
+import torch
+from gridfm_graphkit.training.loss import MixedLoss
 from gridfm_graphkit.io.registries import (
-    MASKING_REGISTRY,
     NORMALIZERS_REGISTRY,
     MODELS_REGISTRY,
+    LOSS_REGISTRY,
+    TRANSFORM_REGISTRY,
+    TASK_REGISTRY,
+    PHYSICS_DECODER_REGISTRY,
 )
 
 import argparse
+from torch_geometric.transforms import Compose
+from gridfm_graphkit.tasks.base_task import BaseTask
 
 
 class NestedNamespace(argparse.Namespace):
@@ -26,6 +26,14 @@ class NestedNamespace(argparse.Namespace):
             if isinstance(value, dict):
                 # Recursively convert dictionaries to NestedNamespace
                 setattr(self, key, NestedNamespace(**value))
+            elif isinstance(value, list):
+                list_of_namespaces = []
+                for element in value:
+                    if isinstance(element, dict):
+                        list_of_namespaces.append(NestedNamespace(**element))
+                    else:
+                        list_of_namespaces.append(element)
+                setattr(self, key, list_of_namespaces)
             else:
                 setattr(self, key, value)
 
@@ -69,9 +77,8 @@ def load_normalizer(args):
     try:
         return NORMALIZERS_REGISTRY.create(
             method,
-            True,
             args,
-        ), NORMALIZERS_REGISTRY.create(method, False, args)
+        )
     except KeyError:
         raise ValueError(f"Unknown transformation: {method}")
 
@@ -90,22 +97,16 @@ def get_loss_function(args):
         ValueError: If an unknown loss function is specified.
     """
     loss_functions = []
-    for loss_name in args.training.losses:
-        if loss_name == "MSE":
-            loss_functions.append(MSELoss())
-        elif loss_name == "MaskedMSE":
-            loss_functions.append(MaskedMSELoss())
-        elif loss_name == "SCE":
-            loss_functions.append(SCELoss())
-        elif loss_name == "PBE":
-            loss_functions.append(PBELoss())
-        else:
-            raise ValueError(f"Unknown loss function: {loss_name}")
+    for loss_name, loss_args in zip(args.training.losses, args.training.loss_args):
+        try:
+            loss_functions.append(LOSS_REGISTRY.create(loss_name, loss_args, args))
+        except KeyError:
+            raise ValueError(f"Unknown loss: {loss_name}")
 
     return MixedLoss(loss_functions=loss_functions, weights=args.training.loss_weights)
 
 
-def load_model(args):
+def load_model(args) -> torch.nn.Module:
     """
     Load the appropriate model
 
@@ -126,13 +127,38 @@ def load_model(args):
         raise ValueError(f"Unknown model type: {model_type}")
 
 
-def get_transform(args):
+def get_task_transforms(args) -> Compose:
     """
-    Load the appropriate dataset transform from the registry.
+    Load the task-specific transforms
     """
-    mask_type = args.data.mask_type
+
+    task_transforms = args.task.task_name
 
     try:
-        return MASKING_REGISTRY.create(mask_type, args)
+        return TRANSFORM_REGISTRY.create(task_transforms, args)
     except KeyError:
-        raise ValueError(f"Unknown transformation: {mask_type}")
+        raise ValueError(f"Unknown task: {task_transforms}")
+
+
+def get_task(args, data_normalizers) -> BaseTask:
+    """
+    Load the task module
+    """
+    task = args.task.task_name
+
+    try:
+        return TASK_REGISTRY.create(task, args, data_normalizers)
+    except KeyError:
+        raise ValueError(f"Unknown task: {task}")
+
+
+def get_physics_decoder(args) -> torch.nn.Module:
+    """
+    Load the task module
+    """
+    task = args.task.task_name
+
+    try:
+        return PHYSICS_DECODER_REGISTRY.create(task)
+    except KeyError:
+        raise ValueError(f"No physics decoder associate to {task} task")

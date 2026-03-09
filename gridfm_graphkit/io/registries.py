@@ -37,6 +37,9 @@ class Registry:
         return len(self._registry)
 
 
-MASKING_REGISTRY = Registry("mask")
 NORMALIZERS_REGISTRY = Registry("norm")
 MODELS_REGISTRY = Registry("model")
+LOSS_REGISTRY = Registry("loss")
+TASK_REGISTRY = Registry("task")
+TRANSFORM_REGISTRY = Registry("transform")
+PHYSICS_DECODER_REGISTRY = Registry("physics_decoder")

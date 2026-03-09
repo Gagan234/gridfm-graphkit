@@ -1,3 +1,4 @@
+👉 [Link](https://github.com/gridfm/gridfm-graphkit/tree/main/examples/notebooks) to the tutorial notebooks on Github
 👉 [Link](https://colab.research.google.com/github/gridfm/gridfm-graphkit/blob/main/examples/notebooks/Tutorial_reconstruction_visualization.ipynb) to the tutorial on Google Colab
 
 ---
