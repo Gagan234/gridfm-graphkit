@@ -40,6 +40,12 @@ def main():
     train_parser.add_argument("--compile", **_compile_kwargs)
     train_parser.add_argument("--bfloat16", **_bfloat16_kwargs)
     train_parser.add_argument("--tf32", **_tf32_kwargs)
+    train_parser.add_argument(
+        "--dataset_wrapper",
+        type=str,
+        default=None,
+        help="Fully-qualified class name of a dataset wrapper to apply, e.g. mypackage.module.MyWrapper",
+    )
 
     # ---- FINETUNE SUBCOMMAND ----
     finetune_parser = subparsers.add_parser("finetune", help="Run fine-tuning")
@@ -52,6 +58,12 @@ def main():
     finetune_parser.add_argument("--compile", **_compile_kwargs)
     finetune_parser.add_argument("--bfloat16", **_bfloat16_kwargs)
     finetune_parser.add_argument("--tf32", **_tf32_kwargs)
+    finetune_parser.add_argument(
+        "--dataset_wrapper",
+        type=str,
+        default=None,
+        help="Fully-qualified class name of a dataset wrapper to apply, e.g. mypackage.module.MyWrapper",
+    )
 
     # ---- EVALUATE SUBCOMMAND ----
     evaluate_parser = subparsers.add_parser(
@@ -74,6 +86,12 @@ def main():
     evaluate_parser.add_argument("--compile", **_compile_kwargs)
     evaluate_parser.add_argument("--bfloat16", **_bfloat16_kwargs)
     evaluate_parser.add_argument("--tf32", **_tf32_kwargs)
+    evaluate_parser.add_argument(
+        "--dataset_wrapper",
+        type=str,
+        default=None,
+        help="Fully-qualified class name of a dataset wrapper to apply, e.g. mypackage.module.MyWrapper",
+    )
     evaluate_parser.add_argument(
         "--compute_dc_ac_metrics",
         action="store_true",
@@ -99,6 +117,12 @@ def main():
     predict_parser.add_argument("--run_name", type=str, default="run")
     predict_parser.add_argument("--log_dir", type=str, default="mlruns")
     predict_parser.add_argument("--data_path", type=str, default="data")
+    predict_parser.add_argument(
+        "--dataset_wrapper",
+        type=str,
+        default=None,
+        help="Fully-qualified class name of a dataset wrapper to apply, e.g. mypackage.module.MyWrapper",
+    )
     predict_parser.add_argument("--output_path", type=str, default="data")
     predict_parser.add_argument("--compile", **_compile_kwargs)
     predict_parser.add_argument("--bfloat16", **_bfloat16_kwargs)
