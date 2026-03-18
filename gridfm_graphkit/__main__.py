@@ -52,6 +52,12 @@ def main():
         default=[],
         help="Python packages to import for plugin registration, e.g. gridfm_graphkit_ee",
     )
+    train_parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=None,
+        help="Override data.workers from the YAML config. Use 0 to debug worker crashes.",
+    )
 
     # ---- FINETUNE SUBCOMMAND ----
     finetune_parser = subparsers.add_parser("finetune", help="Run fine-tuning")
@@ -75,6 +81,12 @@ def main():
         nargs="*",
         default=[],
         help="Python packages to import for plugin registration, e.g. gridfm_graphkit_ee",
+    )
+    finetune_parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=None,
+        help="Override data.workers from the YAML config. Use 0 to debug worker crashes.",
     )
 
     # ---- EVALUATE SUBCOMMAND ----
@@ -109,6 +121,12 @@ def main():
         nargs="*",
         default=[],
         help="Python packages to import for plugin registration, e.g. gridfm_graphkit_ee",
+    )
+    evaluate_parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=None,
+        help="Override data.workers from the YAML config. Use 0 to debug worker crashes.",
     )
     evaluate_parser.add_argument(
         "--compute_dc_ac_metrics",
@@ -146,6 +164,12 @@ def main():
         nargs="*",
         default=[],
         help="Python packages to import for plugin registration, e.g. gridfm_graphkit_ee",
+    )
+    predict_parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=None,
+        help="Override data.workers from the YAML config. Use 0 to debug worker crashes.",
     )
     predict_parser.add_argument("--output_path", type=str, default="data")
     predict_parser.add_argument("--compile", **_compile_kwargs)
