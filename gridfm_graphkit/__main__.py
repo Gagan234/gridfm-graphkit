@@ -44,7 +44,13 @@ def main():
         "--dataset_wrapper",
         type=str,
         default=None,
-        help="Fully-qualified class name of a dataset wrapper to apply, e.g. mypackage.module.MyWrapper",
+        help="Registered name of a dataset wrapper (see DATASET_WRAPPER_REGISTRY), e.g. SharedMemoryCacheDataset",
+    )
+    train_parser.add_argument(
+        "--plugins",
+        nargs="*",
+        default=[],
+        help="Python packages to import for plugin registration, e.g. gridfm_graphkit_ee",
     )
 
     # ---- FINETUNE SUBCOMMAND ----
@@ -62,7 +68,13 @@ def main():
         "--dataset_wrapper",
         type=str,
         default=None,
-        help="Fully-qualified class name of a dataset wrapper to apply, e.g. mypackage.module.MyWrapper",
+        help="Registered name of a dataset wrapper (see DATASET_WRAPPER_REGISTRY), e.g. SharedMemoryCacheDataset",
+    )
+    finetune_parser.add_argument(
+        "--plugins",
+        nargs="*",
+        default=[],
+        help="Python packages to import for plugin registration, e.g. gridfm_graphkit_ee",
     )
 
     # ---- EVALUATE SUBCOMMAND ----
@@ -90,7 +102,13 @@ def main():
         "--dataset_wrapper",
         type=str,
         default=None,
-        help="Fully-qualified class name of a dataset wrapper to apply, e.g. mypackage.module.MyWrapper",
+        help="Registered name of a dataset wrapper (see DATASET_WRAPPER_REGISTRY), e.g. SharedMemoryCacheDataset",
+    )
+    evaluate_parser.add_argument(
+        "--plugins",
+        nargs="*",
+        default=[],
+        help="Python packages to import for plugin registration, e.g. gridfm_graphkit_ee",
     )
     evaluate_parser.add_argument(
         "--compute_dc_ac_metrics",
@@ -121,7 +139,13 @@ def main():
         "--dataset_wrapper",
         type=str,
         default=None,
-        help="Fully-qualified class name of a dataset wrapper to apply, e.g. mypackage.module.MyWrapper",
+        help="Registered name of a dataset wrapper (see DATASET_WRAPPER_REGISTRY), e.g. SharedMemoryCacheDataset",
+    )
+    predict_parser.add_argument(
+        "--plugins",
+        nargs="*",
+        default=[],
+        help="Python packages to import for plugin registration, e.g. gridfm_graphkit_ee",
     )
     predict_parser.add_argument("--output_path", type=str, default="data")
     predict_parser.add_argument("--compile", **_compile_kwargs)
