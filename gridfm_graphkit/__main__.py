@@ -58,6 +58,12 @@ def main():
         default=None,
         help="Override data.workers from the YAML config. Use 0 to debug worker crashes.",
     )
+    train_parser.add_argument(
+        "--dataset_wrapper_cache_dir",
+        type=str,
+        default=None,
+        help="Directory for the dataset wrapper's disk cache. If set, cache is loaded from here when present and saved here after first population.",
+    )
 
     # ---- FINETUNE SUBCOMMAND ----
     finetune_parser = subparsers.add_parser("finetune", help="Run fine-tuning")
@@ -87,6 +93,12 @@ def main():
         type=int,
         default=None,
         help="Override data.workers from the YAML config. Use 0 to debug worker crashes.",
+    )
+    finetune_parser.add_argument(
+        "--dataset_wrapper_cache_dir",
+        type=str,
+        default=None,
+        help="Directory for the dataset wrapper's disk cache. If set, cache is loaded from here when present and saved here after first population.",
     )
 
     # ---- EVALUATE SUBCOMMAND ----
@@ -127,6 +139,12 @@ def main():
         type=int,
         default=None,
         help="Override data.workers from the YAML config. Use 0 to debug worker crashes.",
+    )
+    evaluate_parser.add_argument(
+        "--dataset_wrapper_cache_dir",
+        type=str,
+        default=None,
+        help="Directory for the dataset wrapper's disk cache. If set, cache is loaded from here when present and saved here after first population.",
     )
     evaluate_parser.add_argument(
         "--compute_dc_ac_metrics",
@@ -170,6 +188,12 @@ def main():
         type=int,
         default=None,
         help="Override data.workers from the YAML config. Use 0 to debug worker crashes.",
+    )
+    predict_parser.add_argument(
+        "--dataset_wrapper_cache_dir",
+        type=str,
+        default=None,
+        help="Directory for the dataset wrapper's disk cache. If set, cache is loaded from here when present and saved here after first population.",
     )
     predict_parser.add_argument("--output_path", type=str, default="data")
     predict_parser.add_argument("--compile", **_compile_kwargs)
