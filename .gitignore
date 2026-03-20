@@ -1,4 +1,8 @@
-venv
+*venv
+data_out
+logs
+site
+.julia
 venv_pp
 /data/
 __pycache__/
@@ -10,3 +14,4 @@ gridfm_graphkit.egg-info
 mlruns
 *.pt
 .DS_Store
+.venv
