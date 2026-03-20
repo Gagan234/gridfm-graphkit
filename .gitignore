@@ -11,7 +11,6 @@ gridfm_graphkit.egg-info
 mlruns
 *.pt
 .DS_Store
-integrationtests/data_out*
 .julia
 *logs*
 *data_out*
