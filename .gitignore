@@ -1,5 +1,10 @@
 *venv*
 data_out
+*venv
+data_out
+logs
+site
+.julia
 venv_pp
 /data/
 __pycache__/
@@ -15,3 +20,4 @@ mlruns
 *logs*
 *data_out*
 site*
+.venv

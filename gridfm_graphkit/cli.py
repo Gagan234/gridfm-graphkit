@@ -184,6 +184,7 @@ def main_cli(args):
     trainer_kwargs = {}
     if precision:
         trainer_kwargs["precision"] = precision
+    profiler = getattr(args, "profiler", None)
 
     trainer = L.Trainer(
         logger=logger,
@@ -195,6 +196,7 @@ def main_cli(args):
         max_epochs=config_args.training.epochs,
         callbacks=get_training_callbacks(config_args),
         **trainer_kwargs,
+        profiler=profiler,
     )
     if args.command == "train" or args.command == "finetune":
         trainer.fit(model=model, datamodule=litGrid)
@@ -208,6 +210,7 @@ def main_cli(args):
             log_every_n_steps=1,
             default_root_dir=args.log_dir,
             **trainer_kwargs,
+            profiler=profiler,
         )
         test_trainer.test(model=model, datamodule=litGrid)
 
@@ -241,6 +244,7 @@ def main_cli(args):
             log_every_n_steps=1,
             default_root_dir=args.log_dir,
             **trainer_kwargs,
+            profiler=profiler,
         )
         predictions = predict_trainer.predict(model=model, datamodule=litGrid)
 
