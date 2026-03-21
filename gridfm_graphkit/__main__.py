@@ -18,6 +18,13 @@ def main():
     train_parser.add_argument("--run_name", type=str, default="run")
     train_parser.add_argument("--log_dir", type=str, default="mlruns")
     train_parser.add_argument("--data_path", type=str, default="data")
+    train_parser.add_argument(
+        "--profiler",
+        type=str,
+        default=None,
+        choices=["simple", "advanced", "pytorch"],
+        help="Enable Lightning profiler: 'simple', 'advanced', or 'pytorch'.",
+    )
 
     # ---- FINETUNE SUBCOMMAND ----
     finetune_parser = subparsers.add_parser("finetune", help="Run fine-tuning")
@@ -27,6 +34,13 @@ def main():
     finetune_parser.add_argument("--run_name", type=str, default="run")
     finetune_parser.add_argument("--log_dir", type=str, default="mlruns")
     finetune_parser.add_argument("--data_path", type=str, default="data")
+    finetune_parser.add_argument(
+        "--profiler",
+        type=str,
+        default=None,
+        choices=["simple", "advanced", "pytorch"],
+        help="Enable Lightning profiler: 'simple', 'advanced', or 'pytorch'.",
+    )
 
     # ---- EVALUATE SUBCOMMAND ----
     evaluate_parser = subparsers.add_parser(
@@ -46,6 +60,13 @@ def main():
     evaluate_parser.add_argument("--run_name", type=str, default="run")
     evaluate_parser.add_argument("--log_dir", type=str, default="mlruns")
     evaluate_parser.add_argument("--data_path", type=str, default="data")
+    evaluate_parser.add_argument(
+        "--profiler",
+        type=str,
+        default=None,
+        choices=["simple", "advanced", "pytorch"],
+        help="Enable Lightning profiler: 'simple', 'advanced', or 'pytorch'.",
+    )
     evaluate_parser.add_argument(
         "--compute_dc_ac_metrics",
         action="store_true",
@@ -72,6 +93,13 @@ def main():
     predict_parser.add_argument("--log_dir", type=str, default="mlruns")
     predict_parser.add_argument("--data_path", type=str, default="data")
     predict_parser.add_argument("--output_path", type=str, default="data")
+    predict_parser.add_argument(
+        "--profiler",
+        type=str,
+        default=None,
+        choices=["simple", "advanced", "pytorch"],
+        help="Enable Lightning profiler: 'simple', 'advanced', or 'pytorch'.",
+    )
 
     args = parser.parse_args()
     main_cli(args)
