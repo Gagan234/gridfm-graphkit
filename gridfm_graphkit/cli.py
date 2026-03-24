@@ -139,7 +139,6 @@ def main_cli(args):
     normalizer_stats_path = getattr(args, "normalizer_stats", None)
     dataset_wrapper = getattr(args, "dataset_wrapper", None)
     dataset_wrapper_cache_dir = getattr(args, "dataset_wrapper_cache_dir", None)
-    _validate_dataset_wrapper(dataset_wrapper)
 
     # CLI --num_workers overrides the YAML value (useful for debugging with 0)
     num_workers_override = getattr(args, "num_workers", None)
@@ -147,6 +146,7 @@ def main_cli(args):
         config_args.data.workers = num_workers_override
 
     _load_plugins(getattr(args, "plugins", []))
+    _validate_dataset_wrapper(dataset_wrapper)
 
     litGrid = LitGridHeteroDataModule(
         config_args,
