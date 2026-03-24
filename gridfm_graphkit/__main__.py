@@ -1,6 +1,6 @@
 import argparse
 from datetime import datetime
-from gridfm_graphkit.cli import main_cli
+from gridfm_graphkit.cli import main_cli, benchmark_cli
 
 
 def main():
@@ -169,8 +169,49 @@ def main():
     )
     predict_parser.add_argument("--output_path", type=str, default="data")
 
+    # ---- BENCHMARK SUBCOMMAND ----
+    benchmark_parser = subparsers.add_parser(
+        "benchmark",
+        help="Benchmark train-dataloader iteration speed",
+    )
+    benchmark_parser.add_argument("--config", type=str, required=True)
+    benchmark_parser.add_argument("--data_path", type=str, default="data")
+    benchmark_parser.add_argument(
+        "--epochs",
+        type=int,
+        default=3,
+        help="Number of epochs to iterate through the train dataloader.",
+    )
+    benchmark_parser.add_argument(
+        "--dataset_wrapper",
+        type=str,
+        default=None,
+        help="Registered name of a dataset wrapper (see DATASET_WRAPPER_REGISTRY), e.g. SharedMemoryCacheDataset",
+    )
+    benchmark_parser.add_argument(
+        "--dataset_wrapper_cache_dir",
+        type=str,
+        default=None,
+        help="Directory for the dataset wrapper's disk cache.",
+    )
+    benchmark_parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=None,
+        help="Override data.workers from the YAML config.",
+    )
+    benchmark_parser.add_argument(
+        "--plugins",
+        nargs="*",
+        default=[],
+        help="Python packages to import for plugin registration.",
+    )
+
     args = parser.parse_args()
-    main_cli(args)
+    if args.command == "benchmark":
+        benchmark_cli(args)
+    else:
+        main_cli(args)
 
 
 if __name__ == "__main__":
