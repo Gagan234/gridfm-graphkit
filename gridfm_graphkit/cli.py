@@ -1,8 +1,11 @@
 from gridfm_graphkit.datasets.hetero_powergrid_datamodule import LitGridHeteroDataModule
 from gridfm_graphkit.io.param_handler import NestedNamespace
+from gridfm_graphkit.io.registries import DATASET_WRAPPER_REGISTRY
 from gridfm_graphkit.training.callbacks import SaveBestModelStateDict
+import importlib
 import numpy as np
 import os
+import time
 import yaml
 import torch
 import pandas as pd
@@ -13,6 +16,86 @@ from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.pytorch.loggers import MLFlowLogger
 import lightning as L
+
+
+def _load_plugins(plugins: list[str]) -> None:
+    """Import plugin packages so their registry decorators fire."""
+    for plugin_pkg in plugins:
+        try:
+            importlib.import_module(plugin_pkg)
+        except ModuleNotFoundError as e:
+            raise ModuleNotFoundError(
+                f"Plugin package '{plugin_pkg}' could not be imported: {e}. "
+                "Make sure it is installed in the current environment.",
+            ) from e
+
+
+def _validate_dataset_wrapper(name: str | None) -> None:
+    """Raise a helpful error if *name* is not registered in DATASET_WRAPPER_REGISTRY."""
+    if name is None:
+        return
+    if name not in DATASET_WRAPPER_REGISTRY:
+        available = list(DATASET_WRAPPER_REGISTRY)
+        raise KeyError(
+            f"Dataset wrapper '{name}' is not registered. "
+            f"Available wrappers: {available}. "
+            "If it lives in a plugin package, pass it via --plugins.",
+        )
+
+
+def benchmark_cli(args):
+    """Benchmark train-dataloader iteration speed over one or more epochs."""
+    with open(args.config, "r") as f:
+        base_config = yaml.safe_load(f)
+
+    config_args = NestedNamespace(**base_config)
+
+    num_workers_override = getattr(args, "num_workers", None)
+    if num_workers_override is not None:
+        config_args.data.workers = num_workers_override
+
+    _load_plugins(getattr(args, "plugins", []))
+
+    dataset_wrapper = getattr(args, "dataset_wrapper", None)
+    dataset_wrapper_cache_dir = getattr(args, "dataset_wrapper_cache_dir", None)
+    _validate_dataset_wrapper(dataset_wrapper)
+
+    print("Setting up datamodule...")
+    t0 = time.perf_counter()
+    dm = LitGridHeteroDataModule(
+        config_args,
+        args.data_path,
+        dataset_wrapper=dataset_wrapper,
+        dataset_wrapper_cache_dir=dataset_wrapper_cache_dir,
+    )
+    dm.setup(stage="fit")
+    setup_time = time.perf_counter() - t0
+    print(f"  Setup time        : {setup_time:.2f}s")
+
+    loader = dm.train_dataloader()
+    num_batches = len(loader)
+    print(f"  Train batches     : {num_batches}")
+    print(f"  Batch size        : {config_args.training.batch_size}")
+    print(f"  Workers           : {config_args.data.workers}")
+    print(f"  Dataset wrapper   : {dataset_wrapper or 'none'}")
+    print()
+
+    epoch_times = []
+    for epoch in range(args.epochs):
+        t_start = time.perf_counter()
+        for _batch in loader:
+            pass
+        elapsed = time.perf_counter() - t_start
+        per_batch = elapsed / num_batches if num_batches > 0 else 0.0
+        epoch_times.append(elapsed)
+        print(
+            f"Epoch {epoch:>3}: {elapsed:7.3f}s total  "
+            f"{per_batch:.4f}s/batch  ({num_batches} batches)",
+        )
+
+    if args.epochs > 1:
+        avg = sum(epoch_times) / len(epoch_times)
+        print(f"\nAverage over {args.epochs} epochs: {avg:.3f}s")
 
 
 def get_training_callbacks(args):
@@ -55,10 +138,23 @@ def main_cli(args):
     L.seed_everything(config_args.seed, workers=True)
 
     normalizer_stats_path = getattr(args, "normalizer_stats", None)
+    dataset_wrapper = getattr(args, "dataset_wrapper", None)
+    dataset_wrapper_cache_dir = getattr(args, "dataset_wrapper_cache_dir", None)
+
+    # CLI --num_workers overrides the YAML value (useful for debugging with 0)
+    num_workers_override = getattr(args, "num_workers", None)
+    if num_workers_override is not None:
+        config_args.data.workers = num_workers_override
+
+    _load_plugins(getattr(args, "plugins", []))
+    _validate_dataset_wrapper(dataset_wrapper)
+
     litGrid = LitGridHeteroDataModule(
         config_args,
         args.data_path,
         normalizer_stats_path=normalizer_stats_path,
+        dataset_wrapper=dataset_wrapper,
+        dataset_wrapper_cache_dir=dataset_wrapper_cache_dir,
     )
     model = get_task(config_args, litGrid.data_normalizers)
     if args.command != "train":
