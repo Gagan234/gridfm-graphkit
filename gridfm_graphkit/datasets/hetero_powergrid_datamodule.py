@@ -259,7 +259,11 @@ class LitGridHeteroDataModule(L.LightningDataModule):
         is_rank0 = (
             not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0
         )
-        if is_rank0 and self.trainer is not None and getattr(self.trainer, "logger", None) is not None:
+        if (
+            is_rank0
+            and self.trainer is not None
+            and getattr(self.trainer, "logger", None) is not None
+        ):
             logger = self.trainer.logger
             if isinstance(logger, MLFlowLogger):
                 log_dir = os.path.join(
