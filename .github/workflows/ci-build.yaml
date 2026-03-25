@@ -168,6 +168,9 @@ jobs:
           pip install -e .[dev,test] || pip install -e .
       - name: Run pip-audit
         uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          # CVE-2026-4539: pygments AdlLexer ReDoS, local-only attack vector, no fix released yet
+          ignore-vulns: CVE-2026-4539
 
   trivy_repo:
       name: Trivy (repo scan)
