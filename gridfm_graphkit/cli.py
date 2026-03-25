@@ -162,6 +162,8 @@ def main_cli(args):
         state_dict = torch.load(args.model_path, map_location="cpu")
         model.load_state_dict(state_dict)
 
+    profiler = getattr(args, "profiler", None)
+
     trainer = L.Trainer(
         logger=logger,
         accelerator=config_args.training.accelerator,
@@ -171,6 +173,7 @@ def main_cli(args):
         default_root_dir=args.log_dir,
         max_epochs=config_args.training.epochs,
         callbacks=get_training_callbacks(config_args),
+        profiler=profiler,
     )
     if args.command == "train" or args.command == "finetune":
         trainer.fit(model=model, datamodule=litGrid)
@@ -183,6 +186,7 @@ def main_cli(args):
             num_nodes=1,
             log_every_n_steps=1,
             default_root_dir=args.log_dir,
+            profiler=profiler,
         )
         test_trainer.test(model=model, datamodule=litGrid)
 
@@ -215,6 +219,7 @@ def main_cli(args):
             num_nodes=1,
             log_every_n_steps=1,
             default_root_dir=args.log_dir,
+            profiler=profiler,
         )
         predictions = predict_trainer.predict(model=model, datamodule=litGrid)
 
