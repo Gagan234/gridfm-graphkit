@@ -55,6 +55,7 @@ dependencies = [
     "seaborn",
     "urllib3>=2.6.0",
     "gridfm-datakit>=1.0.2",
+    "pygments>=2.19.3",
 ]
 
 [project.optional-dependencies]
