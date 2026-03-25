@@ -39,8 +39,9 @@ def _validate_dataset_wrapper(name: str | None) -> None:
         raise KeyError(
             f"Dataset wrapper '{name}' is not registered. "
             f"Available wrappers: {available}. "
-            "If it lives in a plugin package, pass it via --plugins."
+            "If it lives in a plugin package, pass it via --plugins.",
         )
+
 
 def benchmark_cli(args):
     """Benchmark train-dataloader iteration speed over one or more epochs."""
@@ -89,7 +90,7 @@ def benchmark_cli(args):
         epoch_times.append(elapsed)
         print(
             f"Epoch {epoch:>3}: {elapsed:7.3f}s total  "
-            f"{per_batch:.4f}s/batch  ({num_batches} batches)"
+            f"{per_batch:.4f}s/batch  ({num_batches} batches)",
         )
 
     if args.epochs > 1:
