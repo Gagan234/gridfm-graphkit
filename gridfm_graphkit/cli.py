@@ -66,6 +66,11 @@ def main_cli(args):
         state_dict = torch.load(args.model_path, map_location="cpu")
         model.load_state_dict(state_dict)
 
+    compile_mode = getattr(args, "compile", None)
+    if compile_mode is not None:
+        print(f"Compiling model with torch.compile(mode='{compile_mode}')")
+        model.model = torch.compile(model.model, mode=compile_mode)
+
     trainer = L.Trainer(
         logger=logger,
         accelerator=config_args.training.accelerator,

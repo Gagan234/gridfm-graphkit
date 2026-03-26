@@ -11,6 +11,15 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
     exp_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
+    _compile_kwargs = dict(
+        type=str,
+        default=None,
+        nargs="?",
+        const="default",
+        choices=["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"],
+        help="Enable torch.compile with the given mode (omit value for 'default').",
+    )
+
     # ---- TRAIN SUBCOMMAND ----
     train_parser = subparsers.add_parser("train", help="Run training")
     train_parser.add_argument("--config", type=str, required=True)
@@ -18,6 +27,7 @@ def main():
     train_parser.add_argument("--run_name", type=str, default="run")
     train_parser.add_argument("--log_dir", type=str, default="mlruns")
     train_parser.add_argument("--data_path", type=str, default="data")
+    train_parser.add_argument("--compile", **_compile_kwargs)
 
     # ---- FINETUNE SUBCOMMAND ----
     finetune_parser = subparsers.add_parser("finetune", help="Run fine-tuning")
@@ -27,6 +37,7 @@ def main():
     finetune_parser.add_argument("--run_name", type=str, default="run")
     finetune_parser.add_argument("--log_dir", type=str, default="mlruns")
     finetune_parser.add_argument("--data_path", type=str, default="data")
+    finetune_parser.add_argument("--compile", **_compile_kwargs)
 
     # ---- EVALUATE SUBCOMMAND ----
     evaluate_parser = subparsers.add_parser(
@@ -46,6 +57,7 @@ def main():
     evaluate_parser.add_argument("--run_name", type=str, default="run")
     evaluate_parser.add_argument("--log_dir", type=str, default="mlruns")
     evaluate_parser.add_argument("--data_path", type=str, default="data")
+    evaluate_parser.add_argument("--compile", **_compile_kwargs)
     evaluate_parser.add_argument(
         "--compute_dc_ac_metrics",
         action="store_true",
@@ -72,6 +84,7 @@ def main():
     predict_parser.add_argument("--log_dir", type=str, default="mlruns")
     predict_parser.add_argument("--data_path", type=str, default="data")
     predict_parser.add_argument("--output_path", type=str, default="data")
+    predict_parser.add_argument("--compile", **_compile_kwargs)
 
     args = parser.parse_args()
     main_cli(args)
