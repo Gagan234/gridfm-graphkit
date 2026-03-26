@@ -1,4 +1,8 @@
-venv
+*venv*
+data_out
+logs
+site
+.julia
 venv_pp
 /data/
 __pycache__/
