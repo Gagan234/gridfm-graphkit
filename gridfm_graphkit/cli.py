@@ -41,6 +41,8 @@ def get_training_callbacks(args):
 
 
 def main_cli(args):
+    torch.set_float32_matmul_precision("high")
+
     logger = MLFlowLogger(
         save_dir=args.log_dir,
         experiment_name=args.exp_name,
