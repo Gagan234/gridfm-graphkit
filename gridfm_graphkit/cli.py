@@ -68,6 +68,13 @@ def main_cli(args):
 
     compile_mode = getattr(args, "compile", None)
     if compile_mode is not None:
+        if compile_mode in ("max-autotune", "max-autotune-no-cudagraphs"):
+            # Allow ATen GEMM as fallback so Triton configs that exceed GPU
+            # shared-memory limits (e.g. triton_mm OOM) are skipped gracefully
+            # instead of causing autotuning errors.
+            import torch._inductor.config as inductor_cfg
+
+            inductor_cfg.max_autotune_gemm_backends = "ATEN,TRITON"
         print(f"Compiling model with torch.compile(mode='{compile_mode}')")
         model.model = torch.compile(model.model, mode=compile_mode)
 
