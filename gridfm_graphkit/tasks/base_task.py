@@ -1,4 +1,5 @@
 import os
+import time
 from abc import ABC, abstractmethod
 import lightning as L
 from pytorch_lightning.utilities import rank_zero_only
@@ -46,6 +47,22 @@ class BaseTask(L.LightningModule, ABC):
     def forward(self, *args, **kwargs):
         """Forward pass"""
         pass
+
+    def on_train_batch_start(self, batch, batch_idx):
+        self._batch_start_time = time.perf_counter()
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        elapsed = time.perf_counter() - self._batch_start_time
+        its = 1.0 / elapsed if elapsed > 0 else 0.0
+        self.log(
+            "Train iterations/s",
+            its,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=True,
+            logger=True,
+            sync_dist=False,
+        )
 
     @abstractmethod
     def training_step(self, batch):
