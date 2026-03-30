@@ -69,9 +69,9 @@ def main_cli(args):
         state_dict = torch.load(args.model_path, map_location="cpu")
         model.load_state_dict(state_dict)
 
-    if getattr(args, "bfloat16", False):
-        print("Casting model to bfloat16")
-        model = model.to(torch.bfloat16)
+    precision = "bf16-true" if getattr(args, "bfloat16", False) else None
+    if precision:
+        print("Using bfloat16 precision (via Lightning Trainer precision='bf16-true')")
 
     compile_mode = getattr(args, "compile", None)
     if compile_mode is not None:
@@ -85,6 +85,10 @@ def main_cli(args):
         print(f"Compiling model with torch.compile(mode='{compile_mode}')")
         model.model = torch.compile(model.model, mode=compile_mode)
 
+    trainer_kwargs = {}
+    if precision:
+        trainer_kwargs["precision"] = precision
+
     trainer = L.Trainer(
         logger=logger,
         accelerator=config_args.training.accelerator,
@@ -94,6 +98,7 @@ def main_cli(args):
         default_root_dir=args.log_dir,
         max_epochs=config_args.training.epochs,
         callbacks=get_training_callbacks(config_args),
+        **trainer_kwargs,
     )
     if args.command == "train" or args.command == "finetune":
         trainer.fit(model=model, datamodule=litGrid)
@@ -106,6 +111,7 @@ def main_cli(args):
             num_nodes=1,
             log_every_n_steps=1,
             default_root_dir=args.log_dir,
+            **trainer_kwargs,
         )
         test_trainer.test(model=model, datamodule=litGrid)
 
@@ -138,6 +144,7 @@ def main_cli(args):
             num_nodes=1,
             log_every_n_steps=1,
             default_root_dir=args.log_dir,
+            **trainer_kwargs,
         )
         predictions = predict_trainer.predict(model=model, datamodule=litGrid)
 
