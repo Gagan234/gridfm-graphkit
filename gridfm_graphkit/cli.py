@@ -41,7 +41,8 @@ def get_training_callbacks(args):
 
 
 def main_cli(args):
-    torch.set_float32_matmul_precision("high")
+    if getattr(args, "tf32", False):
+        torch.set_float32_matmul_precision("high")  # enables TF32 on Ampere+ GPUs
 
     logger = MLFlowLogger(
         save_dir=args.log_dir,
@@ -67,6 +68,10 @@ def main_cli(args):
         print(f"Loading model weights from {args.model_path}")
         state_dict = torch.load(args.model_path, map_location="cpu")
         model.load_state_dict(state_dict)
+
+    if getattr(args, "bfloat16", False):
+        print("Casting model to bfloat16")
+        model = model.to(torch.bfloat16)
 
     compile_mode = getattr(args, "compile", None)
     if compile_mode is not None:
