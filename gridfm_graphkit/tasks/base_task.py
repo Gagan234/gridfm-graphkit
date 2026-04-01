@@ -51,18 +51,33 @@ class BaseTask(L.LightningModule, ABC):
     def on_train_batch_start(self, batch, batch_idx):
         self._batch_start_time = time.perf_counter()
 
+    _LOG_ITS_EVERY_N_STEPS: int = 1000
+
     def on_train_batch_end(self, outputs, batch, batch_idx):
         elapsed = time.perf_counter() - self._batch_start_time
         its = 1.0 / elapsed if elapsed > 0 else 0.0
+        # Always update the progress bar (cheap, in-memory).
         self.log(
             "Train iterations/s",
             its,
             on_step=True,
             on_epoch=False,
             prog_bar=True,
-            logger=True,
+            logger=False,
             sync_dist=False,
         )
+        # Write to the remote logger (e.g. MLflow) only every N steps to avoid
+        # generating thousands of data points that slow down the UI.
+        if self.global_step % self._LOG_ITS_EVERY_N_STEPS == 0:
+            self.log(
+                "Train iterations/s",
+                its,
+                on_step=True,
+                on_epoch=False,
+                prog_bar=False,
+                logger=True,
+                sync_dist=False,
+            )
 
     @abstractmethod
     def training_step(self, batch):
