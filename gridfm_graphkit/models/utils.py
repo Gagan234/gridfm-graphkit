@@ -98,10 +98,10 @@ class PhysicsDecoderOPF(nn.Module):
         #     Qg = Q_in + Qd - q_shunt
         Qg_physics = Q_in + Qd - q_shunt
 
-        Qg_new = torch.zeros_like(bus_data_orig[:, QG_H])
-
-        # PV + REF: solve from physics
-        Qg_new[mask_pvref] = Qg_physics[mask_pvref]
+        # Use torch.where instead of boolean index-put to avoid aten.nonzero
+        # (data-dependent shape) which causes inductor graph breaks under
+        # torch.compile.
+        Qg_new = torch.where(mask_pvref, Qg_physics, torch.zeros_like(Qg_physics))
         Pg_out = agg_bus  # Active generation (Pg)
         Qg_out = Qg_new  # Reactive gen (Qg)
         Vm_out = bus_data_pred[:, VM_OUT]  # Voltage magnitude
