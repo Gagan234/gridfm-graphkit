@@ -167,37 +167,6 @@ def main():
         help="Enable Lightning profiler: 'simple', 'advanced', or 'pytorch'.",
     )
     evaluate_parser.add_argument(
-        "--dataset_wrapper",
-        type=str,
-        default=None,
-        help="Registered name of a dataset wrapper.",
-    )
-    evaluate_parser.add_argument(
-        "--plugins",
-        nargs="*",
-        default=[],
-        help="Python packages to import for plugin registration.",
-    )
-    evaluate_parser.add_argument(
-        "--num_workers",
-        type=int,
-        default=None,
-        help="Override data.workers from the YAML config.",
-    )
-    evaluate_parser.add_argument(
-        "--dataset_wrapper_cache_dir",
-        type=str,
-        default=None,
-        help="Directory for the dataset wrapper's disk cache.",
-    )
-    evaluate_parser.add_argument(
-        "--profiler",
-        type=str,
-        default=None,
-        choices=["simple", "advanced", "pytorch"],
-        help="Enable Lightning profiler.",
-    )
-    evaluate_parser.add_argument(
         "--compute_dc_ac_metrics",
         action="store_true",
     )
@@ -243,11 +212,6 @@ def main():
     predict_parser.add_argument("--compile", **_compile_kwargs)
     predict_parser.add_argument("--bfloat16", **_bfloat16_kwargs)
     predict_parser.add_argument("--tf32", **_tf32_kwargs)
-    predict_parser.add_argument("--dataset_wrapper", type=str, default=None)
-    predict_parser.add_argument("--plugins", nargs="*", default=[])
-    predict_parser.add_argument("--num_workers", type=int, default=None)
-    predict_parser.add_argument("--dataset_wrapper_cache_dir", type=str, default=None)
-    predict_parser.add_argument("--output_path", type=str, default="data")
     predict_parser.add_argument(
         "--profiler",
         type=str,
@@ -292,20 +256,6 @@ def main():
         default=[],
         help="Python packages to import for plugin registration.",
     )
-    predict_parser.add_argument(
-        "--profiler",
-        type=str,
-        default=None,
-        choices=["simple", "advanced", "pytorch"],
-        help="Enable Lightning profiler: 'simple', 'advanced', or 'pytorch'.",
-    )
-
-    args = parser.parse_args()
-    benchmark_parser.add_argument("--epochs", type=int, default=3)
-    benchmark_parser.add_argument("--dataset_wrapper", type=str, default=None)
-    benchmark_parser.add_argument("--dataset_wrapper_cache_dir", type=str, default=None)
-    benchmark_parser.add_argument("--num_workers", type=int, default=None)
-    benchmark_parser.add_argument("--plugins", nargs="*", default=[])
 
     args = parser.parse_args()
 
