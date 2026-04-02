@@ -16,7 +16,12 @@ def main():
         default=None,
         nargs="?",
         const="default",
-        choices=["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"],
+        choices=[
+            "default",
+            "reduce-overhead",
+            "max-autotune",
+            "max-autotune-no-cudagraphs",
+        ],
         help="Enable torch.compile with the given mode (omit value for 'default').",
     )
     _bfloat16_kwargs = dict(

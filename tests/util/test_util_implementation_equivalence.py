@@ -1,21 +1,24 @@
 import torch
 import pytest
 
+
 def impl_a(P_in, Pd, p_shunt, agg_bus, mask_pv, mask_ref):
     Pg_new = torch.zeros_like(P_in)
     Pg_new[mask_pv] = agg_bus[mask_pv]
     Pg_new[mask_ref] = P_in[mask_ref] + Pd[mask_ref] - p_shunt[mask_ref]
     return Pg_new
 
+
 def impl_b(P_in, Pd, p_shunt, agg_bus, mask_pv, mask_ref):
     Pg_ref = torch.where(mask_ref, P_in + Pd - p_shunt, torch.zeros_like(P_in))
     Pg_new = torch.where(mask_pv, agg_bus, Pg_ref)
     return Pg_new
 
+
 @pytest.mark.parametrize("allow_overlap", [False, True])
 def test_run(allow_overlap):
-    n=10000
-    device="cpu"
+    n = 10000
+    device = "cpu"
     torch.manual_seed(0)
 
     P_in = torch.randn(n, device=device)
@@ -40,5 +43,9 @@ def test_run(allow_overlap):
     if not allow_overlap:
         assert equal, f"Outputs differ! Max abs diff: {max_diff:.6f}"
     else:
-        assert max_diff > 0, "Outputs are identical even with overlapping masks, which is unexpected!"
-        assert not equal, "Outputs are identical despite overlapping masks, which is unexpected!"
+        assert max_diff > 0, (
+            "Outputs are identical even with overlapping masks, which is unexpected!"
+        )
+        assert not equal, (
+            "Outputs are identical despite overlapping masks, which is unexpected!"
+        )
