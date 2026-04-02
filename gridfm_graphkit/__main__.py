@@ -63,6 +63,7 @@ def main():
         type=str,
         default=None,
         help="Directory for the dataset wrapper's disk cache. If set, cache is loaded from here when present and saved here after first population.",
+    )
     train_parser.add_argument(
         "--profiler",
         type=str,
@@ -105,6 +106,7 @@ def main():
         type=str,
         default=None,
         help="Directory for the dataset wrapper's disk cache. If set, cache is loaded from here when present and saved here after first population.",
+    )
     finetune_parser.add_argument(
         "--profiler",
         type=str,
@@ -255,6 +257,7 @@ def main():
         nargs="*",
         default=[],
         help="Python packages to import for plugin registration.",
+    )
     predict_parser.add_argument(
         "--profiler",
         type=str,
