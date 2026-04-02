@@ -374,7 +374,10 @@ class LitGridHeteroDataModule(L.LightningDataModule):
         # "received 0 items of ancdata" with the default 'fork' start method.
         # 'forkserver' avoids fd-passing by having a dedicated server process
         # that re-opens shared memory objects by name instead.
-        if num_workers > 0 and torch.multiprocessing.get_start_method(allow_none=True) != "spawn":
+        if (
+            num_workers > 0
+            and torch.multiprocessing.get_start_method(allow_none=True) != "spawn"
+        ):
             import platform
 
             if platform.system() == "Linux":
