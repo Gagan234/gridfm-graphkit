@@ -7,7 +7,6 @@ from gridfm_graphkit.datasets.globals import (
     # Bus feature indices
     PD_H,
     QD_H,
-    QG_H,
     GS,
     BS,
     # Output feature indices
