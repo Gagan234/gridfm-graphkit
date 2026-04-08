@@ -1,7 +1,7 @@
 from gridfm_graphkit.datasets.hetero_powergrid_datamodule import LitGridHeteroDataModule
 from gridfm_graphkit.io.param_handler import NestedNamespace
 from gridfm_graphkit.io.registries import DATASET_WRAPPER_REGISTRY
-from gridfm_graphkit.training.callbacks import SaveBestModelStateDict
+from gridfm_graphkit.training.callbacks import SaveBestModelStateDict, EpochTimerCallback
 import importlib
 import numpy as np
 import os
@@ -186,6 +186,13 @@ def main_cli(args):
         trainer_kwargs["precision"] = precision
     profiler = getattr(args, "profiler", None)
 
+    report_performance = getattr(args, "report_performance", False)
+    epoch_timer = EpochTimerCallback() if report_performance else None
+
+    training_callbacks = get_training_callbacks(config_args)
+    if epoch_timer is not None:
+        training_callbacks = training_callbacks + [epoch_timer]
+
     trainer = L.Trainer(
         logger=logger,
         accelerator=config_args.training.accelerator,
@@ -194,12 +201,14 @@ def main_cli(args):
         log_every_n_steps=1000,
         default_root_dir=args.log_dir,
         max_epochs=config_args.training.epochs,
-        callbacks=get_training_callbacks(config_args),
+        callbacks=training_callbacks,
         **trainer_kwargs,
         profiler=profiler,
     )
     if args.command == "train" or args.command == "finetune":
         trainer.fit(model=model, datamodule=litGrid)
+        if report_performance and epoch_timer is not None and epoch_timer.last_epoch_time is not None:
+            print(f"[performance] last epoch time : {epoch_timer.last_epoch_time:.3f}s")
 
     if args.command != "predict":
         test_trainer = L.Trainer(
@@ -212,7 +221,10 @@ def main_cli(args):
             **trainer_kwargs,
             profiler=profiler,
         )
-        test_trainer.test(model=model, datamodule=litGrid)
+        test_results = test_trainer.test(model=model, datamodule=litGrid)
+        if report_performance and test_results:
+            first_metric, first_value = next(iter(test_results[0].items()))
+            print(f"[performance] {first_metric} : {first_value}")
 
     artifacts_dir = os.path.join(
         logger.save_dir,

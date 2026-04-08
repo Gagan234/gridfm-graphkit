@@ -2,7 +2,28 @@ from lightning.pytorch.callbacks import Callback
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
 from lightning.pytorch.loggers import MLFlowLogger
 import os
+import time
 import torch
+
+
+class EpochTimerCallback(Callback):
+    """Records wall-clock duration of every training epoch."""
+
+    def __init__(self):
+        self.epoch_times: list[float] = []
+        self._epoch_start: float | None = None
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        self._epoch_start = time.perf_counter()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        if self._epoch_start is not None:
+            self.epoch_times.append(time.perf_counter() - self._epoch_start)
+            self._epoch_start = None
+
+    @property
+    def last_epoch_time(self) -> float | None:
+        return self.epoch_times[-1] if self.epoch_times else None
 
 
 class SaveBestModelStateDict(Callback):
