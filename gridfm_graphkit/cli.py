@@ -1,7 +1,10 @@
 from gridfm_graphkit.datasets.hetero_powergrid_datamodule import LitGridHeteroDataModule
 from gridfm_graphkit.io.param_handler import NestedNamespace
 from gridfm_graphkit.io.registries import DATASET_WRAPPER_REGISTRY
-from gridfm_graphkit.training.callbacks import SaveBestModelStateDict, EpochTimerCallback
+from gridfm_graphkit.training.callbacks import (
+    SaveBestModelStateDict,
+    EpochTimerCallback,
+)
 import importlib
 import numpy as np
 import os
@@ -207,7 +210,11 @@ def main_cli(args):
     )
     if args.command == "train" or args.command == "finetune":
         trainer.fit(model=model, datamodule=litGrid)
-        if report_performance and epoch_timer is not None and epoch_timer.last_epoch_time is not None:
+        if (
+            report_performance
+            and epoch_timer is not None
+            and epoch_timer.last_epoch_time is not None
+        ):
             print(f"[performance] last epoch time : {epoch_timer.last_epoch_time:.3f}s")
 
     if args.command != "predict":
