@@ -216,6 +216,8 @@ def main_cli(args):
             and epoch_timer.last_epoch_time is not None
         ):
             print(f"[performance] last epoch time : {epoch_timer.last_epoch_time:.3f}s")
+            if epoch_timer.last_epoch_iters_per_sec is not None:
+                print(f"[performance] last epoch it/s : {epoch_timer.last_epoch_iters_per_sec:.2f}")
 
     if args.command != "predict":
         test_trainer = L.Trainer(
