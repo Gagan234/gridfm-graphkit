@@ -35,7 +35,7 @@ class EpochTimerCallback(Callback):
     @property
     def last_epoch_iters_per_sec(self) -> float | None:
         t = self.last_epoch_time
-        if t is None or t == 0:
+        if t is None or t == 0 or self._last_batch_count == 0:
             return None
         return self._last_batch_count / t
 

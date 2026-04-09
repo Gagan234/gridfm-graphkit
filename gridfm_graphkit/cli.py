@@ -216,20 +216,26 @@ def main_cli(args):
             and epoch_timer.last_epoch_time is not None
         ):
             print(f"[performance] last epoch time : {epoch_timer.last_epoch_time:.3f}s")
-            if epoch_timer.last_epoch_iters_per_sec is not None:
+            if epoch_timer.last_epoch_iters_per_sec is not None and epoch_timer._last_batch_count > 0:
                 print(f"[performance] last epoch it/s : {epoch_timer.last_epoch_iters_per_sec:.2f}")
 
     if args.command != "predict":
-        test_trainer = L.Trainer(
-            logger=logger,
-            accelerator=config_args.training.accelerator,
-            devices=1,
-            num_nodes=1,
-            log_every_n_steps=1,
-            default_root_dir=args.log_dir,
-            **trainer_kwargs,
-            profiler=profiler,
-        )
+        # Reuse the fit trainer when coming from train/finetune so that
+        # torch.compile kernel caches are already warm (avoids a second
+        # AUTOTUNE pass on the first test batch).
+        if args.command in ("train", "finetune"):
+            test_trainer = trainer
+        else:
+            test_trainer = L.Trainer(
+                logger=logger,
+                accelerator=config_args.training.accelerator,
+                devices=1,
+                num_nodes=1,
+                log_every_n_steps=1,
+                default_root_dir=args.log_dir,
+                **trainer_kwargs,
+                profiler=profiler,
+            )
         test_results = test_trainer.test(model=model, datamodule=litGrid)
         if report_performance and test_results:
             first_metric, first_value = next(iter(test_results[0].items()))
