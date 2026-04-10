@@ -76,8 +76,12 @@ def main():
         choices=["simple", "advanced", "pytorch"],
         help="Enable Lightning profiler: 'simple', 'advanced', or 'pytorch'.",
     )
-
-    # ---- FINETUNE SUBCOMMAND ----
+    train_parser.add_argument(
+        "--report-performance",
+        dest="report_performance",
+        action="store_true",
+        help="Print the last training epoch time and a single test metric to stdout.",
+    )
     finetune_parser = subparsers.add_parser("finetune", help="Run fine-tuning")
     finetune_parser.add_argument("--config", type=str, required=True)
     finetune_parser.add_argument("--model_path", type=str, required=True)
@@ -118,6 +122,12 @@ def main():
         default=None,
         choices=["simple", "advanced", "pytorch"],
         help="Enable Lightning profiler: 'simple', 'advanced', or 'pytorch'.",
+    )
+    finetune_parser.add_argument(
+        "--report-performance",
+        dest="report_performance",
+        action="store_true",
+        help="Print the last training epoch time and a single test metric to stdout.",
     )
 
     # ---- EVALUATE SUBCOMMAND ----

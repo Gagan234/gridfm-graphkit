@@ -1,13 +1,17 @@
 from gridfm_graphkit.datasets.hetero_powergrid_datamodule import LitGridHeteroDataModule
 from gridfm_graphkit.io.param_handler import NestedNamespace
 from gridfm_graphkit.io.registries import DATASET_WRAPPER_REGISTRY
-from gridfm_graphkit.training.callbacks import SaveBestModelStateDict
+from gridfm_graphkit.training.callbacks import (
+    SaveBestModelStateDict,
+    EpochTimerCallback,
+)
 import importlib
 import numpy as np
 import os
 import time
 import yaml
 import torch
+import torch.distributed as dist
 import pandas as pd
 
 from gridfm_graphkit.io.param_handler import get_task
@@ -186,6 +190,13 @@ def main_cli(args):
         trainer_kwargs["precision"] = precision
     profiler = getattr(args, "profiler", None)
 
+    report_performance = getattr(args, "report_performance", False)
+    epoch_timer = EpochTimerCallback() if report_performance else None
+
+    training_callbacks = get_training_callbacks(config_args)
+    if epoch_timer is not None:
+        training_callbacks = training_callbacks + [epoch_timer]
+
     trainer = L.Trainer(
         logger=logger,
         accelerator=config_args.training.accelerator,
@@ -194,35 +205,72 @@ def main_cli(args):
         log_every_n_steps=1000,
         default_root_dir=args.log_dir,
         max_epochs=config_args.training.epochs,
-        callbacks=get_training_callbacks(config_args),
+        callbacks=training_callbacks,
         **trainer_kwargs,
         profiler=profiler,
     )
     if args.command == "train" or args.command == "finetune":
         trainer.fit(model=model, datamodule=litGrid)
+        if (
+            report_performance
+            and epoch_timer is not None
+            and epoch_timer.last_epoch_time is not None
+        ):
+            print(f"[performance] last epoch time : {epoch_timer.last_epoch_time:.3f}s")
+            if (
+                epoch_timer.last_epoch_iters_per_sec is not None
+                and epoch_timer._last_batch_count > 0
+            ):
+                print(
+                    f"[performance] last epoch it/s : {epoch_timer.last_epoch_iters_per_sec:.2f}",
+                )
 
     if args.command != "predict":
-        test_trainer = L.Trainer(
-            logger=logger,
-            accelerator=config_args.training.accelerator,
-            devices=1,
-            num_nodes=1,
-            log_every_n_steps=1,
-            default_root_dir=args.log_dir,
-            **trainer_kwargs,
-            profiler=profiler,
-        )
-        test_trainer.test(model=model, datamodule=litGrid)
+        # Reuse the fit trainer when coming from train/finetune so that
+        # torch.compile kernel caches are already warm (avoids a second
+        # AUTOTUNE pass on the first test batch).
+        if args.command in ("train", "finetune"):
+            test_trainer = trainer
+        else:
+            test_trainer = L.Trainer(
+                logger=logger,
+                accelerator=config_args.training.accelerator,
+                devices=1,
+                num_nodes=1,
+                log_every_n_steps=1,
+                default_root_dir=args.log_dir,
+                **trainer_kwargs,
+                profiler=profiler,
+            )
+        test_results = test_trainer.test(model=model, datamodule=litGrid)
+        if report_performance:
+            # test_results[0] may be empty when metrics are routed to the logger
+            # only; fall back to trainer.callback_metrics which always has them.
+            metrics = (
+                test_results[0]
+                if test_results and test_results[0]
+                else dict(test_trainer.callback_metrics)
+            )
+            if metrics:
+                first_metric, first_value = next(iter(metrics.items()))
+                print(f"[performance] {first_metric} : {first_value}")
+            else:
+                print("[performance] no test metrics available")
 
-    artifacts_dir = os.path.join(
-        logger.save_dir,
-        logger.experiment_id,
-        logger.run_id,
-        "artifacts",
+    artifacts_dir = None
+    is_rank0 = (
+        not (dist.is_available() and dist.is_initialized()) or dist.get_rank() == 0
     )
+    if is_rank0:
+        artifacts_dir = os.path.join(
+            logger.save_dir,
+            logger.experiment_id,
+            logger.run_id,
+            "artifacts",
+        )
 
     compute_dc_ac = getattr(args, "compute_dc_ac_metrics", False)
-    if compute_dc_ac:
+    if is_rank0 and compute_dc_ac:
         sn_mva = config_args.data.baseMVA
         for grid_name in config_args.data.networks:
             raw_dir = os.path.join(args.data_path, grid_name, "raw")
@@ -230,7 +278,7 @@ def main_cli(args):
             compute_ac_dc_metrics(artifacts_dir, raw_dir, grid_name, sn_mva)
 
     save_output = getattr(args, "save_output", False) or args.command == "predict"
-    if save_output:
+    if is_rank0 and save_output:
         if len(config_args.data.networks) > 1:
             raise NotImplementedError(
                 "Predict/save_output with multiple grids is not yet supported.",
