@@ -11,6 +11,7 @@ import os
 import time
 import yaml
 import torch
+import torch.distributed as dist
 import pandas as pd
 
 from gridfm_graphkit.io.param_handler import get_task
@@ -216,8 +217,13 @@ def main_cli(args):
             and epoch_timer.last_epoch_time is not None
         ):
             print(f"[performance] last epoch time : {epoch_timer.last_epoch_time:.3f}s")
-            if epoch_timer.last_epoch_iters_per_sec is not None and epoch_timer._last_batch_count > 0:
-                print(f"[performance] last epoch it/s : {epoch_timer.last_epoch_iters_per_sec:.2f}")
+            if (
+                epoch_timer.last_epoch_iters_per_sec is not None
+                and epoch_timer._last_batch_count > 0
+            ):
+                print(
+                    f"[performance] last epoch it/s : {epoch_timer.last_epoch_iters_per_sec:.2f}",
+                )
 
     if args.command != "predict":
         # Reuse the fit trainer when coming from train/finetune so that
@@ -251,15 +257,20 @@ def main_cli(args):
             else:
                 print("[performance] no test metrics available")
 
-    artifacts_dir = os.path.join(
-        logger.save_dir,
-        logger.experiment_id,
-        logger.run_id,
-        "artifacts",
+    artifacts_dir = None
+    is_rank0 = (
+        not (dist.is_available() and dist.is_initialized()) or dist.get_rank() == 0
     )
+    if is_rank0:
+        artifacts_dir = os.path.join(
+            logger.save_dir,
+            logger.experiment_id,
+            logger.run_id,
+            "artifacts",
+        )
 
     compute_dc_ac = getattr(args, "compute_dc_ac_metrics", False)
-    if compute_dc_ac:
+    if is_rank0 and compute_dc_ac:
         sn_mva = config_args.data.baseMVA
         for grid_name in config_args.data.networks:
             raw_dir = os.path.join(args.data_path, grid_name, "raw")
@@ -267,7 +278,7 @@ def main_cli(args):
             compute_ac_dc_metrics(artifacts_dir, raw_dir, grid_name, sn_mva)
 
     save_output = getattr(args, "save_output", False) or args.command == "predict"
-    if save_output:
+    if is_rank0 and save_output:
         if len(config_args.data.networks) > 1:
             raise NotImplementedError(
                 "Predict/save_output with multiple grids is not yet supported.",
