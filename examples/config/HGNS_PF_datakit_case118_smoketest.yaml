@@ -1,0 +1,75 @@
+# Smoke-test config for the gridfm-graphkit training pipeline on a tiny
+# (50-scenario) IEEE 118-bus dataset. Purpose: verify that the Lightning
+# trainer, model wiring, losses, and normalizers all run end-to-end without
+# error. Not intended to produce a meaningful model — the dataset is too
+# small and the architecture is intentionally shrunk for speed.
+#
+# Pair with examples/datakit_configs/test_case118_50.yaml (data generation).
+#
+# Run with:
+#   gridfm_graphkit train \
+#     --config examples/config/HGNS_PF_datakit_case118_smoketest.yaml \
+#     --data_path /path/to/data \
+#     --exp_name smoketest \
+#     --run_name run0
+
+callbacks:
+  patience: 100
+  tol: 0
+
+task:
+  task_name: PowerFlow
+
+data:
+  baseMVA: 100
+  mask_value: 0.0
+  normalization: HeteroDataMVANormalizer
+  networks:
+  - case118_ieee
+  scenarios:
+  - 50
+  test_ratio: 0.1
+  val_ratio: 0.1
+  workers: 2
+  split_by_load_scenario_idx: true
+
+# Shrunk model: 2 layers / hidden 16 (cf. production case118 config which is
+# num_layers=12, hidden_size=48). Same input/output dims because those are
+# tied to the data schema, not the model size.
+model:
+  attention_head: 2
+  edge_dim: 10
+  hidden_size: 16
+  input_bus_dim: 15
+  input_gen_dim: 6
+  output_bus_dim: 2
+  output_gen_dim: 1
+  num_layers: 2
+  type: GNS_heterogeneous
+
+optimizer:
+  beta1: 0.9
+  beta2: 0.999
+  learning_rate: 0.0005
+  lr_decay: 0.7
+  lr_patience: 5
+
+seed: 0
+
+training:
+  batch_size: 4
+  epochs: 3
+  loss_weights:
+  - 0.1
+  - 0.9
+  losses:
+  - LayeredWeightedPhysics
+  - MaskedBusMSE
+  loss_args:
+  - base_weight: 0.5
+  - {}
+  accelerator: auto
+  devices: auto
+  strategy: auto
+
+verbose: true
