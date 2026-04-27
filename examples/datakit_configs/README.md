@@ -10,12 +10,22 @@ These YAML files are inputs for [gridfm-datakit](https://github.com/gridfm/gridf
 
 ## How to use
 
+**One-time prerequisite per fresh Python env** — install the required Julia packages (gridfm-datakit's `juliapkg.json` doesn't declare them, so we install them ourselves):
+
+```bash
+python examples/scripts/bootstrap_julia_env.py
+```
+
+That script downloads Julia (via `juliapkg`) and adds PowerModels, Ipopt, JuMP, JSON, Memento, InfrastructureModels, NLsolve into the project env, then precompiles them. Takes 5–10 minutes the first time.
+
+After bootstrap is done, generate data with:
+
 ```python
 from gridfm_datakit.generate import generate_power_flow_data
 generate_power_flow_data("examples/datakit_configs/test_case118_50.yaml")
 ```
 
-The first call to `generate_power_flow_data` triggers `juliacall`'s automatic Julia install, which downloads Julia and installs the required Julia packages declared by `gridfm-datakit` (PowerModels, Ipopt, JuMP, JSON, Memento, InfrastructureModels, NLsolve). Subsequent calls reuse that Julia environment.
+Subsequent calls reuse the cached Julia environment and start in seconds.
 
 Output structure: `<settings.data_dir>/<network.name>/raw/` containing parquet files (`bus_data.parquet`, `branch_data.parquet`, etc.) — see the gridfm-datakit docs for the schema.
 
