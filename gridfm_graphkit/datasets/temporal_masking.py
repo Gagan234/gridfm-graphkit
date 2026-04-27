@@ -51,6 +51,45 @@ def _broadcast_time_mask_to_entity_shapes(
     }
 
 
+def _bus_mask_only(
+    bus_mask_1d: torch.Tensor,
+    x_bus: torch.Tensor,
+    x_gen: torch.Tensor,
+    x_edge: torch.Tensor,
+) -> Dict[str, torch.Tensor]:
+    """Build a mask dict from a 1-D ``[N]`` bus mask — bus-only masking.
+
+    The 1-D bus mask is broadcast across all time steps and all features of
+    the bus tensor. The generator and branch tensors are returned with
+    all-False masks (no propagation to connected entities at this layer —
+    Phase 4 strategies are deliberately bus-scoped; gen/edge masking is a
+    separate concern handled by future strategy compositions).
+    """
+    if bus_mask_1d.dtype != torch.bool:
+        bus_mask_1d = bus_mask_1d.bool()
+    N = bus_mask_1d.shape[0]
+    return {
+        "bus": bus_mask_1d.view(N, 1, 1).expand_as(x_bus).clone(),
+        "gen": torch.zeros_like(x_gen, dtype=torch.bool),
+        "branch": torch.zeros_like(x_edge, dtype=torch.bool),
+    }
+
+
+def _select_bus_subset(N: int, rate: float, rng: torch.Generator) -> torch.Tensor:
+    """Pick ``floor(rate * N)`` distinct bus indices uniformly at random.
+
+    Uses ``torch.randperm`` for sampling without replacement. Returns a
+    ``[k]`` long tensor of bus indices.
+    """
+    n_masked = int(rate * N)
+    if n_masked < 0:
+        n_masked = 0
+    if n_masked > N:
+        n_masked = N
+    perm = torch.randperm(N, generator=rng)
+    return perm[:n_masked]
+
+
 class MaskingStrategy(ABC):
     """Abstract base for spatio-temporal masking strategies.
 
@@ -288,3 +327,106 @@ class CausalMasking(MaskingStrategy):
         return _broadcast_time_mask_to_entity_shapes(
             time_mask, x_bus, x_gen, x_edge,
         )
+
+
+@MASKING_STRATEGY_REGISTRY.register("block_spatial")
+class BlockSpatialMasking(MaskingStrategy):
+    """Mask a *fresh* random subset of buses across all time steps.
+
+    Each call to ``build_masks`` picks a new random subset
+    ``S ⊂ [0, N)`` with ``|S| = floor(spatial_rate * N)`` using the
+    caller-supplied RNG. The masked subset varies between samples in a
+    batch — i.e., the model sees different "missing regions" each step.
+
+    Pretrains the model for *state estimation under regional measurement
+    loss*: a contiguous spatial subset of bus measurements is missing,
+    and the model must infer those values from the rest of the grid.
+
+    Args:
+        spatial_rate: fraction of buses to mask, in ``[0, 1]``. The
+            actual count is ``floor(spatial_rate * N)``, so very small
+            rates with small ``N`` may round to zero buses.
+
+    Raises:
+        ValueError: on out-of-range ``spatial_rate``.
+    """
+
+    def __init__(self, spatial_rate: float = 0.3) -> None:
+        if not 0.0 <= spatial_rate <= 1.0:
+            raise ValueError(
+                f"spatial_rate must be in [0, 1], got {spatial_rate}",
+            )
+        self.spatial_rate = float(spatial_rate)
+
+    def build_masks(
+        self,
+        x_bus: torch.Tensor,
+        x_gen: torch.Tensor,
+        x_edge: torch.Tensor,
+        edge_index: torch.Tensor,
+        rng: torch.Generator,
+    ) -> Dict[str, torch.Tensor]:
+        N = x_bus.shape[0]
+        masked_buses = _select_bus_subset(N, self.spatial_rate, rng)
+
+        bus_mask_1d = torch.zeros(N, dtype=torch.bool)
+        bus_mask_1d[masked_buses] = True
+
+        return _bus_mask_only(bus_mask_1d, x_bus, x_gen, x_edge)
+
+
+@MASKING_STRATEGY_REGISTRY.register("tube")
+class TubeMasking(MaskingStrategy):
+    """Mask the *same* random subset of buses on every call (persistent failure).
+
+    Identical structure to :class:`BlockSpatialMasking`, but the masked
+    subset ``S`` is fully determined by ``tube_seed`` and is therefore
+    constant across all calls. This models a *sustained sensor failure*
+    or a permanently-uninstrumented region: the same buses are absent in
+    every training sample, so the model never gets to "see" them.
+
+    The caller-supplied ``rng`` is **ignored** for spatial subset
+    selection. (It is part of the signature for API uniformity across all
+    strategies, and may be used by future extensions of ``TubeMasking``
+    that add other random elements.)
+
+    Args:
+        tube_rate: fraction of buses included in the persistent missing
+            region, in ``[0, 1]``.
+        tube_seed: seed for the deterministic subset selection. Different
+            seeds yield different (but each individually persistent)
+            masked subsets — useful for ablation runs across multiple
+            seeds.
+
+    Raises:
+        ValueError: on out-of-range ``tube_rate``.
+    """
+
+    def __init__(self, tube_rate: float = 0.3, tube_seed: int = 0) -> None:
+        if not 0.0 <= tube_rate <= 1.0:
+            raise ValueError(
+                f"tube_rate must be in [0, 1], got {tube_rate}",
+            )
+        self.tube_rate = float(tube_rate)
+        self.tube_seed = int(tube_seed)
+
+    def build_masks(
+        self,
+        x_bus: torch.Tensor,
+        x_gen: torch.Tensor,
+        x_edge: torch.Tensor,
+        edge_index: torch.Tensor,
+        rng: torch.Generator,
+    ) -> Dict[str, torch.Tensor]:
+        N = x_bus.shape[0]
+
+        # Use a fresh, fixed-seed generator independent of the caller's
+        # `rng`. This is what makes the masked subset persistent across
+        # calls regardless of how `rng` is seeded.
+        tube_rng = torch.Generator().manual_seed(self.tube_seed)
+        masked_buses = _select_bus_subset(N, self.tube_rate, tube_rng)
+
+        bus_mask_1d = torch.zeros(N, dtype=torch.bool)
+        bus_mask_1d[masked_buses] = True
+
+        return _bus_mask_only(bus_mask_1d, x_bus, x_gen, x_edge)
