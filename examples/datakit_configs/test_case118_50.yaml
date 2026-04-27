@@ -1,0 +1,34 @@
+network:
+  name: case118_ieee
+  source: pglib
+
+load:
+  generator: agg_load_profile
+  agg_profile: default
+  scenarios: 50
+  sigma: 0.15
+  change_reactive_power: true
+  global_range: 0.4
+  max_scaling_factor: 3.0
+  step_size: 0.05
+  start_scaling_factor: 0.8
+
+topology_perturbation:
+  type: none
+generation_perturbation:
+  type: none
+admittance_perturbation:
+  type: none
+
+settings:
+  num_processes: 2
+  data_dir: /mnt/home/gsapkota/thesis-runs/data
+  large_chunk_size: 500
+  overwrite: true
+  mode: pf
+  include_dc_res: true
+  pf_fast: false
+  dcpf_fast: false
+  enable_solver_logs: false
+  max_iter: 100
+  no_stats: false
