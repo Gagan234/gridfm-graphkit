@@ -24,6 +24,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Optional, Union
 
 import torch
+from torch_geometric.utils import k_hop_subgraph
 
 from gridfm_graphkit.io.registries import MASKING_STRATEGY_REGISTRY
 
@@ -428,5 +429,91 @@ class TubeMasking(MaskingStrategy):
 
         bus_mask_1d = torch.zeros(N, dtype=torch.bool)
         bus_mask_1d[masked_buses] = True
+
+        return _bus_mask_only(bus_mask_1d, x_bus, x_gen, x_edge)
+
+
+@MASKING_STRATEGY_REGISTRY.register("topology")
+class TopologyMasking(MaskingStrategy):
+    """Mask the ``k``-hop graph neighborhood of an anchor bus.
+
+    Picks an anchor bus, then runs breadth-first search on the bus-to-bus
+    connectivity graph (provided as ``edge_index``) to find every bus
+    within graph distance ``≤ hop_count`` of the anchor. The set of
+    masked buses is therefore always a connected sub-graph (in the bus
+    connectivity), which mirrors the way real grid failures propagate —
+    a substation outage takes down all connected buses, a line
+    contingency disconnects an entire downstream radial section, etc.
+
+    This is the strategy with no direct precedent in the spatio-temporal
+    MAE literature: prior work either masks at random or uses
+    rectangular/tube regions in a regular grid (traffic, weather), but
+    none consume the topological connectivity of an irregular graph the
+    way a power network requires. Pretrains the model for downstream
+    tasks where missingness is *coherent* rather than i.i.d. — primarily
+    contingency analysis and security-state estimation.
+
+    Args:
+        hop_count: BFS radius ``k``. ``k = 0`` masks only the anchor
+            itself; ``k = 1`` masks the anchor and its immediate
+            neighbors; etc. Larger ``k`` → larger masked sub-graph.
+        anchor_strategy: how to pick the anchor.
+            - ``"random_bus"``: uniform over ``[0, N)``.
+        anchor_bus: optional deterministic anchor index. If provided,
+            overrides ``anchor_strategy``. Useful for unit tests and for
+            reproducing specific contingency scenarios.
+
+    Raises:
+        ValueError: on negative ``hop_count``, unrecognized
+            ``anchor_strategy``, or out-of-range explicit ``anchor_bus``.
+    """
+
+    def __init__(
+        self,
+        hop_count: int = 2,
+        anchor_strategy: str = "random_bus",
+        anchor_bus: Optional[int] = None,
+    ) -> None:
+        if hop_count < 0:
+            raise ValueError(f"hop_count must be >= 0, got {hop_count}")
+        if anchor_strategy not in ("random_bus",):
+            raise ValueError(
+                f"anchor_strategy must be 'random_bus', got {anchor_strategy!r}",
+            )
+        self.hop_count = int(hop_count)
+        self.anchor_strategy = anchor_strategy
+        self.anchor_bus = anchor_bus
+
+    def build_masks(
+        self,
+        x_bus: torch.Tensor,
+        x_gen: torch.Tensor,
+        x_edge: torch.Tensor,
+        edge_index: torch.Tensor,
+        rng: torch.Generator,
+    ) -> Dict[str, torch.Tensor]:
+        N = x_bus.shape[0]
+
+        if self.anchor_bus is not None:
+            anchor = int(self.anchor_bus)
+            if anchor < 0 or anchor >= N:
+                raise ValueError(
+                    f"anchor_bus={anchor} out of range [0, {N})",
+                )
+        else:
+            anchor = int(torch.randint(0, N, (1,), generator=rng).item())
+
+        # `k_hop_subgraph` returns (node_subset, ...). The subset includes
+        # the anchor itself when k >= 0.
+        node_subset, _, _, _ = k_hop_subgraph(
+            [anchor],
+            num_hops=self.hop_count,
+            edge_index=edge_index,
+            num_nodes=N,
+            relabel_nodes=False,
+        )
+
+        bus_mask_1d = torch.zeros(N, dtype=torch.bool)
+        bus_mask_1d[node_subset] = True
 
         return _bus_mask_only(bus_mask_1d, x_bus, x_gen, x_edge)
