@@ -1,0 +1,69 @@
+# Spatio-temporal masked reconstruction — topology (k-hop) masking on case118_ieee.
+#
+# Masks the k-hop graph neighborhood of a randomly chosen anchor bus.
+# The masked region is always a connected sub-graph in the bus
+# topology — mirroring real grid failure modes (substation outages,
+# line contingencies). Pretrains for downstream tasks where
+# missingness is coherent rather than i.i.d.
+
+callbacks:
+  patience: 100
+  tol: 0
+
+task:
+  task_name: TemporalReconstruction
+
+masking:
+  strategy: topology
+  hop_count: 2                    # BFS radius in the bus connectivity graph
+  anchor_strategy: random_bus      # uniform over all buses
+
+data:
+  baseMVA: 100
+  mask_value: 0.0
+  normalization: HeteroDataMVANormalizer
+  networks:
+    - case118_ieee
+  scenarios:
+    - 50
+  test_ratio: 0.1
+  val_ratio: 0.1
+  workers: 2
+  split_by_load_scenario_idx: true
+  window_size: 6
+  window_stride: 1
+
+model:
+  type: TemporalGNS_heterogeneous
+  attention_head: 2
+  edge_dim: 10
+  hidden_size: 16
+  input_bus_dim: 15
+  input_gen_dim: 6
+  output_bus_dim: 2
+  output_gen_dim: 1
+  num_layers: 2
+
+optimizer:
+  beta1: 0.9
+  beta2: 0.999
+  learning_rate: 0.0005
+  lr_decay: 0.7
+  lr_patience: 5
+
+seed: 0
+
+training:
+  batch_size: 4
+  epochs: 3
+  loss_weights:
+    - 1.0
+  losses:
+    - MaskedBusMSE
+  loss_args:
+    - {}
+  accelerator: auto
+  devices: auto
+  strategy: auto
+
+verbose: true

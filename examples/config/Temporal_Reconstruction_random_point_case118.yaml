@@ -1,0 +1,73 @@
+# Spatio-temporal masked reconstruction — random-point masking on case118_ieee.
+#
+# Independent Bernoulli mask per (bus, time, feature) position. The model
+# sees a random subset of positions zeroed out and must reconstruct them
+# from the surrounding context (across time, across the grid, and across
+# other features at the same node).
+#
+# Sized for the 50-scenario IEEE 118-bus test dataset; for larger
+# datasets adjust `data.scenarios`, `training.batch_size`, and
+# `training.epochs` accordingly. Pair with the matching gridfm-datakit
+# config in examples/datakit_configs/test_case118_50.yaml.
+
+callbacks:
+  patience: 100
+  tol: 0
+
+task:
+  task_name: TemporalReconstruction
+
+masking:
+  strategy: random_point
+  rate: 0.5
+
+data:
+  baseMVA: 100
+  mask_value: 0.0
+  normalization: HeteroDataMVANormalizer
+  networks:
+    - case118_ieee
+  scenarios:
+    - 50
+  test_ratio: 0.1
+  val_ratio: 0.1
+  workers: 2
+  split_by_load_scenario_idx: true
+  # Temporal-specific (consumed by HeteroGridTemporalDataset):
+  window_size: 6
+  window_stride: 1
+
+model:
+  type: TemporalGNS_heterogeneous
+  attention_head: 2
+  edge_dim: 10
+  hidden_size: 16
+  input_bus_dim: 15
+  input_gen_dim: 6
+  output_bus_dim: 2
+  output_gen_dim: 1
+  num_layers: 2
+
+optimizer:
+  beta1: 0.9
+  beta2: 0.999
+  learning_rate: 0.0005
+  lr_decay: 0.7
+  lr_patience: 5
+
+seed: 0
+
+training:
+  batch_size: 4
+  epochs: 3
+  loss_weights:
+    - 1.0
+  losses:
+    - MaskedBusMSE
+  loss_args:
+    - {}
+  accelerator: auto
+  devices: auto
+  strategy: auto
+
+verbose: true

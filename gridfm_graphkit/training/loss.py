@@ -102,6 +102,15 @@ class MaskedGenMSE(torch.nn.Module):
 
 @LOSS_REGISTRY.register("MaskedBusMSE")
 class MaskedBusMSE(torch.nn.Module):
+    """Masked MSE on a subset of bus output features (Vm, Va, optionally Qg).
+
+    Works on both static ``[N, F]`` tensors and temporal ``[N, T, F]``
+    tensors because the column selection uses ``[..., cols]`` (ellipsis-
+    indexing) rather than ``[:, cols]`` (rank-2-only). Boolean indexing
+    on the result also flattens any-rank tensors equivalently before the
+    F.mse_loss reduction.
+    """
+
     def __init__(self, loss_args, args):
         super().__init__()
         self.reduction = "mean"
@@ -123,10 +132,11 @@ class MaskedBusMSE(torch.nn.Module):
             pred_cols = [VM_OUT, VA_OUT]
             target_cols = [VM_H, VA_H]
 
-        pred_bus = pred_dict["bus"][:, pred_cols]  # shape: [N, 3]
-        target_bus = target_dict["bus"][:, target_cols]
-
-        mask = mask_dict["bus"][:, target_cols]
+        # `[..., cols]` selects the requested columns on the LAST dim
+        # regardless of how many leading dims (N or N×T) the tensor has.
+        pred_bus = pred_dict["bus"][..., pred_cols]
+        target_bus = target_dict["bus"][..., target_cols]
+        mask = mask_dict["bus"][..., target_cols]
 
         loss = F.mse_loss(
             pred_bus[mask],
