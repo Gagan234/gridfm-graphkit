@@ -20,10 +20,13 @@ decorator and become selectable from a YAML config via ``masking.strategy: name`
 
 from __future__ import annotations
 
+import argparse
+import inspect
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import torch
+from torch_geometric.transforms import BaseTransform
 from torch_geometric.utils import k_hop_subgraph
 
 from gridfm_graphkit.io.registries import MASKING_STRATEGY_REGISTRY
@@ -517,3 +520,96 @@ class TopologyMasking(MaskingStrategy):
         bus_mask_1d[node_subset] = True
 
         return _bus_mask_only(bus_mask_1d, x_bus, x_gen, x_edge)
+
+
+# ---------------------------------------------------------------------------
+# Pipeline integration: PyG transform that runs a configured strategy
+# ---------------------------------------------------------------------------
+
+
+def _config_to_dict(cfg: Any) -> Dict[str, Any]:
+    """Convert a config (NestedNamespace, Namespace, or dict) to a flat dict.
+
+    Recursively unwraps any nested namespaces so dict-valued fields like
+    ``entity_rates`` arrive at the strategy constructor as actual dicts,
+    not as NestedNamespace instances (which lack ``.items()`` etc.).
+    """
+    if isinstance(cfg, dict):
+        return {k: _config_to_dict(v) for k, v in cfg.items()}
+    if hasattr(cfg, "to_dict"):
+        return cfg.to_dict()
+    if isinstance(cfg, argparse.Namespace):
+        return _config_to_dict(vars(cfg))
+    return cfg
+
+
+def _instantiate_strategy(
+    strategy_name: str, kwargs: Dict[str, Any],
+) -> MaskingStrategy:
+    """Instantiate a registered strategy with only the kwargs it accepts.
+
+    Filters ``kwargs`` to those whose names appear in the strategy's
+    ``__init__`` signature, so a single ``args.masking`` block can carry
+    fields for any strategy without each strategy needing to ignore
+    unrecognized arguments.
+    """
+    strategy_cls = MASKING_STRATEGY_REGISTRY.get(strategy_name)
+    sig = inspect.signature(strategy_cls.__init__)
+    accepted = set(sig.parameters.keys()) - {"self"}
+    filtered = {k: v for k, v in kwargs.items() if k in accepted}
+    return strategy_cls(**filtered)
+
+
+class AddTemporalMask(BaseTransform):
+    """PyG transform: run a configured masking strategy on a temporal sample.
+
+    Reads the strategy name and hyperparameters from ``args.masking``,
+    instantiates the strategy, and on each call:
+
+    1. Pulls ``x_bus``, ``x_gen``, ``x_edge``, ``edge_index`` from the
+       temporal HeteroData (the [N, T, F] / [G, T, F] / [E, T, F] /
+       [2, E] tensors produced by :class:`HeteroGridTemporalDataset`).
+    2. Constructs a ``torch.Generator``. If ``args.masking.seed`` is set,
+       seeds it deterministically; otherwise samples a fresh seed from
+       PyTorch's global RNG so masks vary between calls but follow any
+       global ``torch.manual_seed`` set before training.
+    3. Calls ``strategy.build_masks`` and stores the result at
+       ``data.mask_dict`` for downstream consumers (the existing
+       ``ApplyMasking`` transform; the model; the loss).
+
+    The composing chain to use is :class:`TemporalReconstructionTransforms`
+    (registered under ``"TemporalReconstruction"`` in ``TRANSFORM_REGISTRY``).
+    """
+
+    def __init__(self, args: Any) -> None:
+        super().__init__()
+        masking_cfg = _config_to_dict(args.masking)
+        if "strategy" not in masking_cfg:
+            raise ValueError(
+                "args.masking.strategy is required (e.g. 'random_point')",
+            )
+        strategy_name = masking_cfg.pop("strategy")
+        self._seed: Optional[int] = masking_cfg.pop("seed", None)
+        self.strategy = _instantiate_strategy(strategy_name, masking_cfg)
+
+    def forward(self, data):
+        rng = torch.Generator()
+        if self._seed is not None:
+            rng.manual_seed(int(self._seed))
+        else:
+            # Sample a non-deterministic seed from torch's global state, so
+            # masks vary between calls but follow any global manual_seed set
+            # at the start of training. Without this, two consecutive calls
+            # would share state via the generator's auto-seeded default.
+            rng.manual_seed(int(torch.randint(0, 2**31 - 1, (1,)).item()))
+
+        x_bus = data["bus"].x
+        x_gen = data["gen"].x
+        bus_bus = ("bus", "connects", "bus")
+        x_edge = data[bus_bus].edge_attr
+        edge_index = data[bus_bus].edge_index
+
+        data.mask_dict = self.strategy.build_masks(
+            x_bus, x_gen, x_edge, edge_index, rng,
+        )
+        return data

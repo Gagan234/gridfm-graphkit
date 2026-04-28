@@ -10,6 +10,7 @@ from gridfm_graphkit.datasets.masking import (
     AddPFHeteroMask,
     SimulateMeasurements,
 )
+from gridfm_graphkit.datasets.temporal_masking import AddTemporalMask
 from gridfm_graphkit.io.registries import TRANSFORM_REGISTRY
 
 
@@ -54,4 +55,30 @@ class StateEstimationTransforms(Compose):
         transforms.append(ApplyMasking(args=args))
 
         # Pass the list of transforms to Compose
+        super().__init__(transforms)
+
+
+@TRANSFORM_REGISTRY.register("TemporalReconstruction")
+class TemporalReconstructionTransforms(Compose):
+    """Per-window transform chain for the spatio-temporal masking framework.
+
+    Applied to a temporal sample (a [N, T, F]-shaped HeteroData produced
+    by :class:`HeteroGridTemporalDataset`). Selects a masking strategy
+    based on ``args.masking.strategy`` and runs it; ``ApplyMasking``
+    downstream zeros the masked feature positions in the input tensors
+    so the model receives a self-supervised reconstruction problem.
+
+    Unlike the static task transforms (PowerFlow / OPF / StateEstimation),
+    this chain does **not** include ``RemoveInactiveBranches`` /
+    ``RemoveInactiveGenerators`` — those operate on single-time-point
+    [N, F] tensors and must be applied to each scenario *before* the
+    temporal wrapper stacks them into [N, T, F] samples. The base
+    dataset is responsible for applying that per-scenario cleanup.
+    """
+
+    def __init__(self, args):
+        transforms = [
+            AddTemporalMask(args=args),
+            ApplyMasking(args=args),
+        ]
         super().__init__(transforms)
