@@ -24,7 +24,7 @@ which the dataset was generated.
 
 from __future__ import annotations
 
-from typing import List
+from typing import Callable, List, Optional
 
 import torch
 from torch.utils.data import Dataset
@@ -47,6 +47,12 @@ class HeteroGridTemporalDataset(Dataset):
         window_size: number of consecutive time steps per sample (T).
         stride: step between window starts (default 1). With stride 1 the
             windows overlap maximally; with stride T they are disjoint.
+        transform: optional per-window callable applied to the assembled
+            ``HeteroData`` sample before it is returned. The pipeline that
+            consumes this dataset (the masking transforms in
+            ``TemporalReconstructionTransforms``) operates on the assembled
+            ``[N, T, F]`` shape, so it runs here, after stacking, rather
+            than per-scenario inside ``base_dataset``.
 
     Raises:
         ValueError: if the inputs are inconsistent (length mismatch,
@@ -60,6 +66,7 @@ class HeteroGridTemporalDataset(Dataset):
         load_scenario_idx: torch.Tensor,
         window_size: int,
         stride: int = 1,
+        transform: Optional[Callable[[HeteroData], HeteroData]] = None,
     ) -> None:
         if window_size < 1:
             raise ValueError(f"window_size must be >= 1, got {window_size}")
@@ -75,6 +82,7 @@ class HeteroGridTemporalDataset(Dataset):
         self.base_dataset = base_dataset
         self.window_size = int(window_size)
         self.stride = int(stride)
+        self.transform = transform
 
         # Sort base scenarios by load_scenario_idx (temporal order).
         # `_sorted_scenario_ids[k]` is the index into `base_dataset` of the
@@ -163,5 +171,8 @@ class HeteroGridTemporalDataset(Dataset):
             scenario_ids,
             dtype=torch.long,
         )
+
+        if self.transform is not None:
+            sample = self.transform(sample)
 
         return sample

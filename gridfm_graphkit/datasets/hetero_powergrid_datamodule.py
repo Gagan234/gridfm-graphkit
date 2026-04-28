@@ -2,6 +2,7 @@ import json
 import torch
 import os
 from torch_geometric.loader import DataLoader
+from torch_geometric.transforms import Compose
 from torch.utils.data import ConcatDataset
 from torch.utils.data import Subset
 import torch.distributed as dist
@@ -16,12 +17,23 @@ from gridfm_graphkit.datasets.utils import (
     split_dataset_by_load_scenario_idx,
 )
 from gridfm_graphkit.datasets.powergrid_hetero_dataset import HeteroGridDatasetDisk
+from gridfm_graphkit.datasets.temporal_dataset import HeteroGridTemporalDataset
+from gridfm_graphkit.datasets.transforms import (
+    RemoveInactiveBranches,
+    RemoveInactiveGenerators,
+)
 import numpy as np
 import random
 import warnings
 import lightning as L
-from typing import List
+from typing import List, Tuple
 from lightning.pytorch.loggers import MLFlowLogger
+
+
+# Tasks whose dataloading needs the [N, T, F] temporal pipeline rather than
+# the static per-scenario pipeline. Centralised here so adding a new
+# temporal task only touches one line.
+_TEMPORAL_TASK_NAMES = {"TemporalReconstruction"}
 
 
 class LitGridHeteroDataModule(L.LightningDataModule):
@@ -128,92 +140,42 @@ class LitGridHeteroDataModule(L.LightningDataModule):
             )
             print(f"Loaded normalizer stats from {self.normalizer_stats_path}")
 
+        is_temporal = self._is_temporal_task()
+
         for i, network in enumerate(self.args.data.networks):
             data_normalizer = load_normalizer(args=self.args)
             self.data_normalizers.append(data_normalizer)
 
-            # Create torch dataset (normalizer is NOT yet fitted)
             data_path_network = os.path.join(self.data_dir, network)
 
-            is_distributed = dist.is_available() and dist.is_initialized()
-
-            if not is_distributed or dist.get_rank() == 0:
-                dataset = HeteroGridDatasetDisk(
-                    root=data_path_network,
-                    data_normalizer=data_normalizer,
-                    transform=get_task_transforms(args=self.args),
-                )
-
-            # All ranks wait here until rank 0 processing is done
-            if is_distributed:
-                dist.barrier()
-
-            if is_distributed and dist.get_rank() != 0:
-                dataset = HeteroGridDatasetDisk(
-                    root=data_path_network,
-                    data_normalizer=data_normalizer,
-                    transform=get_task_transforms(args=self.args),
-                )
-
-            self.datasets.append(dataset)
-
-            num_scenarios = self.args.data.scenarios[i]
-            if num_scenarios > len(dataset):
-                warnings.warn(
-                    f"Requested number of scenarios ({num_scenarios}) exceeds dataset size ({len(dataset)}). "
-                    "Using the full dataset instead.",
-                )
-                num_scenarios = len(dataset)
-
-            # Create a subset
-            all_indices = list(range(len(dataset)))
-            # Random seed set before every shuffle for reproducibility in case the power grid datasets are analyzed in a different order
-            random.seed(self.args.seed)
-            random.shuffle(all_indices)
-            subset_indices = all_indices[:num_scenarios]
-
-            # load_scenario for each scenario in the subset
-            load_scenarios = dataset.load_scenarios[subset_indices]
-
-            dataset = Subset(dataset, subset_indices)
-
-            if self.dataset_wrapper is not None:
-                wrapper_cls = DATASET_WRAPPER_REGISTRY.get(self.dataset_wrapper)
-                dataset = wrapper_cls(dataset, cache_dir=self.dataset_wrapper_cache_dir)
-
-            # Random seed set before every split, same as above
-            np.random.seed(self.args.seed)
-            if self.split_by_load_scenario_idx:
-                train_dataset, val_dataset, test_dataset = (
-                    split_dataset_by_load_scenario_idx(
-                        dataset,
-                        self.data_dir,
-                        load_scenarios,
-                        self.args.data.val_ratio,
-                        self.args.data.test_ratio,
-                    )
+            if is_temporal:
+                (
+                    base_dataset,
+                    train_dataset,
+                    val_dataset,
+                    test_dataset,
+                    train_scenario_ids,
+                    val_scenario_ids,
+                    test_scenario_ids,
+                    num_scenarios,
+                ) = self._setup_network_temporal(
+                    i, network, data_path_network, data_normalizer,
                 )
             else:
-                train_dataset, val_dataset, test_dataset = split_dataset(
-                    dataset,
-                    self.data_dir,
-                    self.args.data.val_ratio,
-                    self.args.data.test_ratio,
+                (
+                    base_dataset,
+                    train_dataset,
+                    val_dataset,
+                    test_dataset,
+                    train_scenario_ids,
+                    val_scenario_ids,
+                    test_scenario_ids,
+                    num_scenarios,
+                ) = self._setup_network_static(
+                    i, network, data_path_network, data_normalizer,
                 )
 
-            # Extract scenario IDs for each split
-            train_scenario_ids = self._extract_scenario_ids(
-                train_dataset,
-                subset_indices,
-            )
-            val_scenario_ids = self._extract_scenario_ids(
-                val_dataset,
-                subset_indices,
-            )
-            test_scenario_ids = self._extract_scenario_ids(
-                test_dataset,
-                subset_indices,
-            )
+            self.datasets.append(base_dataset)
 
             # Fit normalizer: restore from saved stats only for fit_on_train
             # normalizers (global baseMVA must match the model's training run).
@@ -241,8 +203,14 @@ class LitGridHeteroDataModule(L.LightningDataModule):
 
             # Populate the wrapper cache now that the normalizer is fitted,
             # so transform() has BaseMVA set when __getitem__ is called.
-            if self.dataset_wrapper is not None and hasattr(dataset, "_setup_cache"):
-                dataset._setup_cache()
+            # (Only relevant on the static path; the temporal path doesn't use
+            # DATASET_WRAPPER_REGISTRY.)
+            if (
+                not is_temporal
+                and self.dataset_wrapper is not None
+                and hasattr(train_dataset, "_setup_cache")
+            ):
+                train_dataset._setup_cache()
 
             self.train_datasets.append(train_dataset)
             self.val_datasets.append(val_dataset)
@@ -276,6 +244,253 @@ class LitGridHeteroDataModule(L.LightningDataModule):
             else:
                 log_dir = os.path.join(logger.save_dir, "stats")
             self.save_scenario_splits(log_dir)
+
+    def _is_temporal_task(self) -> bool:
+        """Whether the configured task uses the [N, T, F] temporal pipeline."""
+        task_cfg = getattr(self.args, "task", None)
+        if task_cfg is None:
+            return False
+        return getattr(task_cfg, "task_name", "") in _TEMPORAL_TASK_NAMES
+
+    def _setup_network_static(
+        self, i: int, network: str, data_path_network: str, data_normalizer,
+    ) -> Tuple:
+        """Build the per-scenario static pipeline for one network.
+
+        Returns the unwrapped base dataset, the three split subsets, the
+        per-split scenario-ID lists, and the resolved ``num_scenarios``.
+        """
+        is_distributed = dist.is_available() and dist.is_initialized()
+
+        if not is_distributed or dist.get_rank() == 0:
+            dataset = HeteroGridDatasetDisk(
+                root=data_path_network,
+                data_normalizer=data_normalizer,
+                transform=get_task_transforms(args=self.args),
+            )
+
+        if is_distributed:
+            dist.barrier()
+
+        if is_distributed and dist.get_rank() != 0:
+            dataset = HeteroGridDatasetDisk(
+                root=data_path_network,
+                data_normalizer=data_normalizer,
+                transform=get_task_transforms(args=self.args),
+            )
+
+        base_dataset = dataset
+
+        num_scenarios = self.args.data.scenarios[i]
+        if num_scenarios > len(dataset):
+            warnings.warn(
+                f"Requested number of scenarios ({num_scenarios}) exceeds dataset size ({len(dataset)}). "
+                "Using the full dataset instead.",
+            )
+            num_scenarios = len(dataset)
+
+        all_indices = list(range(len(dataset)))
+        # Seed before every shuffle for reproducibility regardless of the
+        # order in which power grid datasets are processed.
+        random.seed(self.args.seed)
+        random.shuffle(all_indices)
+        subset_indices = all_indices[:num_scenarios]
+
+        load_scenarios = dataset.load_scenarios[subset_indices]
+
+        dataset = Subset(dataset, subset_indices)
+
+        if self.dataset_wrapper is not None:
+            wrapper_cls = DATASET_WRAPPER_REGISTRY.get(self.dataset_wrapper)
+            dataset = wrapper_cls(dataset, cache_dir=self.dataset_wrapper_cache_dir)
+
+        np.random.seed(self.args.seed)
+        if self.split_by_load_scenario_idx:
+            train_dataset, val_dataset, test_dataset = (
+                split_dataset_by_load_scenario_idx(
+                    dataset,
+                    self.data_dir,
+                    load_scenarios,
+                    self.args.data.val_ratio,
+                    self.args.data.test_ratio,
+                )
+            )
+        else:
+            train_dataset, val_dataset, test_dataset = split_dataset(
+                dataset,
+                self.data_dir,
+                self.args.data.val_ratio,
+                self.args.data.test_ratio,
+            )
+
+        train_scenario_ids = self._extract_scenario_ids(
+            train_dataset, subset_indices,
+        )
+        val_scenario_ids = self._extract_scenario_ids(
+            val_dataset, subset_indices,
+        )
+        test_scenario_ids = self._extract_scenario_ids(
+            test_dataset, subset_indices,
+        )
+
+        return (
+            base_dataset,
+            train_dataset,
+            val_dataset,
+            test_dataset,
+            train_scenario_ids,
+            val_scenario_ids,
+            test_scenario_ids,
+            num_scenarios,
+        )
+
+    def _setup_network_temporal(
+        self, i: int, network: str, data_path_network: str, data_normalizer,
+    ) -> Tuple:
+        """Build the temporal-window pipeline for one network.
+
+        Stacks ``window_size`` consecutive scenarios into ``[N, T, F]``
+        samples via :class:`HeteroGridTemporalDataset`, applies the masking
+        transforms after stacking, and splits on *windows* (not scenarios).
+
+        The per-scenario transform is restricted to entity cleanup
+        (``RemoveInactiveBranches``, ``RemoveInactiveGenerators``) so that
+        all scenarios in a window share identical topology and feature
+        widths — required by the wrapper's QSTS invariants. The masking
+        transforms (``AddTemporalMask`` + ``ApplyMasking``) operate on the
+        assembled ``[N, T, F]`` tensors and run inside the temporal
+        wrapper's ``transform`` hook.
+
+        Scenarios are taken in the smallest-``load_scenario_idx``-first
+        order to satisfy the wrapper's contiguity assertion. Window
+        splitting uses the existing random-window split; with overlapping
+        windows (stride < window_size) some scenarios appear in multiple
+        splits, which is acceptable for masked reconstruction. A proper
+        temporal-block split for forecasting evaluation is a separate
+        concern handled at evaluation time.
+        """
+        is_distributed = dist.is_available() and dist.is_initialized()
+
+        # The per-scenario transform strips B_ON / G_ON columns (and the
+        # rows of any inactive branches/gens). For QSTS data with fixed
+        # topology every entry is active, so this is a column trim
+        # uniform across scenarios — the temporal wrapper's topology-
+        # invariance check then passes.
+        per_scenario_transform = Compose(
+            [RemoveInactiveBranches(), RemoveInactiveGenerators()],
+        )
+
+        if not is_distributed or dist.get_rank() == 0:
+            base_dataset = HeteroGridDatasetDisk(
+                root=data_path_network,
+                data_normalizer=data_normalizer,
+                transform=per_scenario_transform,
+            )
+
+        if is_distributed:
+            dist.barrier()
+
+        if is_distributed and dist.get_rank() != 0:
+            base_dataset = HeteroGridDatasetDisk(
+                root=data_path_network,
+                data_normalizer=data_normalizer,
+                transform=per_scenario_transform,
+            )
+
+        num_scenarios = self.args.data.scenarios[i]
+        if num_scenarios > len(base_dataset):
+            warnings.warn(
+                f"Requested number of scenarios ({num_scenarios}) exceeds "
+                f"dataset size ({len(base_dataset)}). Using the full "
+                "dataset instead.",
+            )
+            num_scenarios = len(base_dataset)
+
+        # Take the first `num_scenarios` in load_scenario_idx order — this
+        # gives a temporally contiguous block, which the wrapper requires.
+        full_load = base_dataset.load_scenarios
+        order = torch.argsort(full_load)
+        contiguous_indices: List[int] = order[:num_scenarios].tolist()
+        contiguous_load = full_load[contiguous_indices]
+
+        window_size_attr = getattr(self.args.data, "window_size", None)
+        if window_size_attr is None:
+            raise ValueError(
+                "args.data.window_size is required for the temporal task; "
+                "set it in the YAML config (e.g. window_size: 6).",
+            )
+        window_size = int(window_size_attr)
+        window_stride = int(getattr(self.args.data, "window_stride", 1))
+
+        window_transform = get_task_transforms(args=self.args)
+
+        scenario_subset = Subset(base_dataset, contiguous_indices)
+        temporal_dataset = HeteroGridTemporalDataset(
+            base_dataset=scenario_subset,
+            load_scenario_idx=contiguous_load,
+            window_size=window_size,
+            stride=window_stride,
+            transform=window_transform,
+        )
+
+        np.random.seed(self.args.seed)
+        train_dataset, val_dataset, test_dataset = split_dataset(
+            temporal_dataset,
+            self.data_dir,
+            self.args.data.val_ratio,
+            self.args.data.test_ratio,
+        )
+
+        train_scenario_ids = self._extract_temporal_scenario_ids(
+            train_dataset, contiguous_indices, window_size, window_stride,
+        )
+        val_scenario_ids = self._extract_temporal_scenario_ids(
+            val_dataset, contiguous_indices, window_size, window_stride,
+        )
+        test_scenario_ids = self._extract_temporal_scenario_ids(
+            test_dataset, contiguous_indices, window_size, window_stride,
+        )
+
+        return (
+            base_dataset,
+            train_dataset,
+            val_dataset,
+            test_dataset,
+            train_scenario_ids,
+            val_scenario_ids,
+            test_scenario_ids,
+            num_scenarios,
+        )
+
+    @staticmethod
+    def _extract_temporal_scenario_ids(
+        subset: Subset,
+        contiguous_indices: List[int],
+        window_size: int,
+        window_stride: int,
+    ) -> List[int]:
+        """Map a window-level Subset back to the unique scenario IDs it covers.
+
+        Each window ``w`` in the temporal dataset spans the contiguous
+        scenarios at sorted positions ``[w*stride, w*stride+window_size)``.
+        The returned list is the sorted union of original-base-dataset
+        scenario IDs that appear in any window of ``subset``. With
+        overlapping windows (stride < window_size), neighbouring splits
+        will share scenarios — by design, since the underlying time series
+        is contiguous.
+        """
+        window_indices = subset.indices
+        if isinstance(window_indices, torch.Tensor):
+            window_indices = window_indices.flatten().tolist()
+        elif not isinstance(window_indices, list):
+            window_indices = list(window_indices)
+
+        scenario_set = set()
+        for w in window_indices:
+            start = w * window_stride
+            for j in range(window_size):
+                scenario_set.add(contiguous_indices[start + j])
+        return sorted(scenario_set)
 
     @staticmethod
     def _fit_normalizer(

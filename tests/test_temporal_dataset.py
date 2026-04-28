@@ -197,3 +197,34 @@ def test_feature_stacking_preserves_per_step_values() -> None:
             sample[("bus", "connects", "bus")].edge_attr[:, t, :],
             base[t][("bus", "connects", "bus")].edge_attr,
         )
+
+
+def test_per_window_transform_runs_after_stacking() -> None:
+    """The optional ``transform`` arg should run on the assembled [N, T, F]
+    sample, after stacking — verified by tagging the sample inside the
+    transform and reading the tag back out."""
+    base = _StubBaseDataset(n_scenarios=6)
+    load_idx = torch.arange(6, dtype=torch.long)
+
+    def tag_with_time_dim(sample):
+        # The transform sees the post-stack shape: [N, T, F].
+        sample["_seen_time_dim"] = sample["bus"].x.shape[1]
+        return sample
+
+    ds = HeteroGridTemporalDataset(
+        base, load_idx, window_size=4, transform=tag_with_time_dim,
+    )
+    sample = ds[0]
+    assert int(sample["_seen_time_dim"]) == 4
+
+
+def test_default_transform_none_preserves_original_behavior() -> None:
+    """Passing no ``transform`` (the default) leaves the sample untouched."""
+    base = _StubBaseDataset(n_scenarios=6)
+    load_idx = torch.arange(6, dtype=torch.long)
+    ds = HeteroGridTemporalDataset(base, load_idx, window_size=3)
+    sample = ds[0]
+    # Sanity: feature shapes match the documented [N, T, F] convention and
+    # no extra attributes were added that weren't there before.
+    assert sample["bus"].x.shape[1] == 3
+    assert "_seen_time_dim" not in sample.keys()
