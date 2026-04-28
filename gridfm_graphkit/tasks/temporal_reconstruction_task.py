@@ -1,25 +1,22 @@
 """Lightning task for spatio-temporal masked-reconstruction pretraining.
 
-Thin subclass of :class:`ReconstructionTask` registered under
-``"TemporalReconstruction"`` in ``TASK_REGISTRY``. The shared training,
-validation, testing, and prediction logic from the base class works
-without modification on temporal samples because:
+Concrete subclass of :class:`ReconstructionTask` registered under
+``"TemporalReconstruction"`` in ``TASK_REGISTRY``.
 
-- The model's forward signature ``(x_dict, edge_index_dict,
-  edge_attr_dict, mask_dict)`` is unchanged; ``TemporalGNS_heterogeneous``
-  produces ``[N, T, F_out]`` outputs from ``[N, T, F]`` inputs.
-- Boolean indexing in the mask-aware loss functions
-  (``MaskedMSE``, ``MaskedBusMSE``) flattens any-rank tensors equivalently,
-  so a ``[N, T, F]`` tensor with a ``[N, T, F]`` bool mask reduces to the
-  same loss expression as the static ``[N, F]`` case.
-- Lightning's batch handling concatenates ``HeteroData`` along axis 0 of
-  every entity tensor, which is the node/edge dim — leaving the
-  temporal axis 1 intact.
+The base ``ReconstructionTask`` provides ``forward``, ``training_step``,
+and ``validation_step`` (all of which work without modification on
+temporal samples — boolean indexing and the model's forward signature
+are rank-agnostic). It leaves ``test_step`` and ``predict_step``
+abstract, so this subclass provides minimal concrete implementations.
 
-The base ``ReconstructionTask`` constructor calls ``load_model`` and
-``get_loss_function`` from ``param_handler``, both of which dispatch via
-the existing registries — so no additional plumbing is needed in this
-class.
+The per-step bodies here are kept simple — compute the masked-
+reconstruction loss via ``shared_step`` and log/return it — rather
+than reproducing ``PowerFlowTask``'s PF-specific residual analysis
+(branch flow, node injection, PBE metrics). That analysis assumes
+rank-2 tensors with specific column indexing and does not translate
+cleanly to the ``[N, T, F]`` temporal output shape produced by the
+temporal model. A follow-up temporally-attentive model that produces
+analyzable physics outputs across time may add richer reporting.
 """
 
 from __future__ import annotations
@@ -32,4 +29,21 @@ from gridfm_graphkit.tasks.reconstruction_tasks import ReconstructionTask
 class TemporalReconstructionTask(ReconstructionTask):
     """Spatio-temporal masked-reconstruction Lightning task."""
 
-    pass
+    def test_step(self, batch, batch_idx, dataloader_idx=0):
+        _, loss_dict = self.shared_step(batch)
+        loss_dict["loss"] = loss_dict["loss"].detach()
+        for metric, value in loss_dict.items():
+            self.log(
+                f"Test {metric}",
+                value,
+                batch_size=batch.num_graphs,
+                sync_dist=True,
+                on_epoch=True,
+                logger=True,
+                on_step=False,
+            )
+        return loss_dict["loss"]
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        output, _ = self.shared_step(batch)
+        return output
