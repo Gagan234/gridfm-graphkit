@@ -54,10 +54,19 @@ def _make_args(F_bus: int = 15, F_gen: int = 6, F_edge: int = 11):
 
 
 def _make_temporal_inputs(N: int = 4, T: int = 3, G: int = 2, E: int = 6):
-    """Construct a temporal HeteroData-like input dict tuple."""
+    """Construct a temporal HeteroData-like input dict tuple.
+
+    ``F_edge`` is 10 (not 11) because the inner spatial model expects
+    edge features after the static ``RemoveInactiveBranches`` transform
+    has stripped the trailing ``B_ON`` column. In production, that
+    cleanup runs per-scenario at the base dataset level (before the
+    temporal wrapper stacks scenarios into [E, T, F] samples). For unit
+    tests on the temporal model in isolation we mimic the post-cleanup
+    shape directly.
+    """
     F_bus = 15
     F_gen = 6
-    F_edge = 11
+    F_edge = 10
 
     # Random features, but ensure exactly one REF bus (index 0), one PV
     # (index 1), and the rest PQ — these flags are read by the inner
