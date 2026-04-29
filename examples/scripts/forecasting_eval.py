@@ -105,12 +105,18 @@ def _load_task(cfg: dict, dm: LitGridHeteroDataModule, checkpoint: Path):
 def _accumulate_errors(task, dataloader) -> Dict[str, torch.Tensor]:
     """Collect per-position prediction errors at the masked time steps.
 
-    Returns a dict with keys 'vm_err', 'va_err', 'vm_target', 'va_target',
-    each a 1-D tensor of all per-(bus, masked-timestep) entries
-    flattened across the test set.
+    Returns a dict of tensors flattened over (bus, masked-timestep)
+    across the entire test set. Includes both the model's predictions
+    and a *persistence baseline* (future = last observed value) so the
+    output JSON always has the naive-floor reference paired with the
+    model's metrics. Persistence is the standard "any model must at
+    least beat this" reference in forecasting; reporting it inline
+    means every JSON in the ablation table is self-contained.
     """
-    vm_err = []
-    va_err = []
+    vm_err_model = []
+    va_err_model = []
+    vm_err_persistence = []
+    va_err_persistence = []
     vm_target = []
     va_target = []
 
@@ -142,27 +148,57 @@ def _accumulate_errors(task, dataloader) -> Dict[str, torch.Tensor]:
             # otherwise.
             time_mask = mask_dict["bus"][0, :, 0]  # [T] bool
 
+            # The last unmasked time step is the latest observation the
+            # model (or any baseline) is allowed to use for forecasting.
+            # With trailing-block masking this is t = T - horizon - 1,
+            # the position immediately before the masked block begins.
+            unmasked_idx = (~time_mask).nonzero(as_tuple=True)[0]
+            if unmasked_idx.numel() == 0:
+                raise SystemExit(
+                    "Forecasting eval requires at least one unmasked "
+                    "context time step; got a fully-masked window.",
+                )
+            last_obs_t = int(unmasked_idx.max().item())
+
+            # Persistence baseline: predicted future = last observed value,
+            # broadcast across the masked horizon.
+            pred_vm_pers = (
+                target_bus[..., VM_H][:, last_obs_t : last_obs_t + 1]
+                .expand(-1, int(time_mask.sum().item()))
+            )
+            pred_va_pers = (
+                target_bus[..., VA_H][:, last_obs_t : last_obs_t + 1]
+                .expand(-1, int(time_mask.sum().item()))
+            )
+
             # Slice: only score positions where time_mask is True.
             pred_vm = pred_bus[..., VM_OUT][:, time_mask]
             pred_va = pred_bus[..., VA_OUT][:, time_mask]
             true_vm = target_bus[..., VM_H][:, time_mask]
             true_va = target_bus[..., VA_H][:, time_mask]
 
-            vm_err.append((pred_vm - true_vm).flatten())
-            va_err.append((pred_va - true_va).flatten())
+            vm_err_model.append((pred_vm - true_vm).flatten())
+            va_err_model.append((pred_va - true_va).flatten())
+            vm_err_persistence.append((pred_vm_pers - true_vm).flatten())
+            va_err_persistence.append((pred_va_pers - true_va).flatten())
             vm_target.append(true_vm.flatten())
             va_target.append(true_va.flatten())
 
     return {
-        "vm_err": torch.cat(vm_err),
-        "va_err": torch.cat(va_err),
+        "vm_err_model": torch.cat(vm_err_model),
+        "va_err_model": torch.cat(va_err_model),
+        "vm_err_persistence": torch.cat(vm_err_persistence),
+        "va_err_persistence": torch.cat(va_err_persistence),
         "vm_target": torch.cat(vm_target),
         "va_target": torch.cat(va_target),
     }
 
 
 def _summarize_errors(errs: Dict[str, torch.Tensor]) -> Dict[str, dict]:
-    """Compute MAE / RMSE / NRMSE per output column."""
+    """Compute MAE / RMSE / NRMSE per output column for both the model
+    and the persistence baseline. Top-level keys: 'model', 'persistence',
+    each containing per-column ('vm', 'va') sub-dicts of metrics.
+    """
 
     def _stat(err: torch.Tensor, target: torch.Tensor) -> dict:
         if err.numel() == 0:
@@ -179,8 +215,80 @@ def _summarize_errors(errs: Dict[str, torch.Tensor]) -> Dict[str, dict]:
         }
 
     return {
-        "vm": _stat(errs["vm_err"], errs["vm_target"]),
-        "va": _stat(errs["va_err"], errs["va_target"]),
+        "model": {
+            "vm": _stat(errs["vm_err_model"], errs["vm_target"]),
+            "va": _stat(errs["va_err_model"], errs["va_target"]),
+        },
+        "persistence": {
+            "vm": _stat(errs["vm_err_persistence"], errs["vm_target"]),
+            "va": _stat(errs["va_err_persistence"], errs["va_target"]),
+        },
+    }
+
+
+def run_forecasting_eval(
+    config_path: Path,
+    checkpoint_path: Path,
+    data_path: Path,
+    horizon: int = 4,
+    verbose: bool = True,
+) -> dict:
+    """Run forecasting eval and return the metrics record (without writing).
+
+    This is the function the cross-run wrapper imports. It can also be
+    called directly from a notebook / interactive session.
+    """
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Config not found: {config_path}")
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    if not data_path.is_dir():
+        raise FileNotFoundError(f"Data path is not a directory: {data_path}")
+
+    if verbose:
+        print(f"Loading training config: {config_path}")
+    with open(config_path) as f:
+        cfg_train = yaml.safe_load(f)
+
+    cfg_eval = _override_masking_for_forecasting(cfg_train, horizon)
+    if int(cfg_eval["data"]["window_size"]) <= horizon:
+        raise ValueError(
+            f"horizon={horizon} must be strictly less than "
+            f"window_size={cfg_eval['data']['window_size']}; otherwise "
+            "no context is left to forecast from.",
+        )
+
+    if verbose:
+        print(
+            "Building eval datamodule with trailing-block forecasting "
+            f"mask (horizon={horizon})...",
+        )
+    dm = _build_eval_datamodule(cfg_eval, str(data_path))
+
+    if verbose:
+        print(f"Loading model from checkpoint: {checkpoint_path}")
+    task = _load_task(cfg_eval, dm, checkpoint_path)
+
+    test_loaders = dm.test_dataloader()
+    if not test_loaders:
+        raise RuntimeError("Test dataloader list is empty — no networks?")
+    if verbose:
+        print(f"Running eval on {len(test_loaders)} test loader(s)...")
+
+    errs = _accumulate_errors(task, test_loaders[0])
+    metrics = _summarize_errors(errs)
+
+    return {
+        "config": str(config_path),
+        "checkpoint": str(checkpoint_path),
+        "horizon": int(horizon),
+        "n_masked_positions": int(errs["vm_err_model"].numel()),
+        "metrics": metrics,
+        "training_masking_strategy": cfg_train.get("masking", {}).get(
+            "strategy",
+        ),
+        "model_type": cfg_train.get("model", {}).get("type"),
+        "training_seed": cfg_train.get("seed"),
     }
 
 
@@ -224,58 +332,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.config.is_file():
-        raise SystemExit(f"Config not found: {args.config}")
-    if not args.checkpoint.is_file():
-        raise SystemExit(f"Checkpoint not found: {args.checkpoint}")
-    if not args.data_path.is_dir():
-        raise SystemExit(f"Data path is not a directory: {args.data_path}")
-
-    print(f"Loading training config: {args.config}")
-    with open(args.config) as f:
-        cfg_train = yaml.safe_load(f)
-
-    cfg_eval = _override_masking_for_forecasting(cfg_train, args.horizon)
-    if int(cfg_eval["data"]["window_size"]) <= args.horizon:
-        raise SystemExit(
-            f"horizon={args.horizon} must be strictly less than "
-            f"window_size={cfg_eval['data']['window_size']}; otherwise "
-            "no context is left to forecast from.",
-        )
-
-    print(f"Building eval datamodule with trailing-block forecasting mask "
-          f"(horizon={args.horizon})...")
-    dm = _build_eval_datamodule(cfg_eval, str(args.data_path))
-
-    print(f"Loading model from checkpoint: {args.checkpoint}")
-    task = _load_task(cfg_eval, dm, args.checkpoint)
-
-    test_loaders = dm.test_dataloader()
-    if not test_loaders:
-        raise SystemExit("Test dataloader list is empty — no networks?")
-    print(f"Running forecasting eval on {len(test_loaders)} test loader(s)...")
-
-    errs = _accumulate_errors(task, test_loaders[0])
-    metrics = _summarize_errors(errs)
-
-    record = {
-        "config": str(args.config),
-        "checkpoint": str(args.checkpoint),
-        "horizon": int(args.horizon),
-        "n_masked_positions": int(errs["vm_err"].numel()),
-        "metrics": metrics,
-        "training_masking_strategy": cfg_train.get("masking", {}).get(
-            "strategy",
-        ),
-        "model_type": cfg_train.get("model", {}).get("type"),
-        "training_seed": cfg_train.get("seed"),
-    }
+    record = run_forecasting_eval(
+        config_path=args.config,
+        checkpoint_path=args.checkpoint,
+        data_path=args.data_path,
+        horizon=args.horizon,
+    )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w") as f:
         json.dump(record, f, indent=2)
     print(f"Wrote metrics: {args.output}")
-    print(json.dumps(metrics, indent=2))
+    print(json.dumps(record["metrics"], indent=2))
 
 
 if __name__ == "__main__":
