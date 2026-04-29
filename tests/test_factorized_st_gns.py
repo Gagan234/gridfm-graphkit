@@ -211,10 +211,12 @@ def _make_temporal_sample(
         ("gen", "connected_to", "bus"): gb_edge_index,
         ("bus", "connected_to", "gen"): bg_edge_index,
     }
+    # `gridfm-datakit` only attaches edge_attr to the bus-bus relation;
+    # gen-bus and bus-gen edges have edge_index but no edge_attr in real
+    # data. Match that convention here so the test exercises the same
+    # input shape the production pipeline produces.
     edge_attr_dict = {
         ("bus", "connects", "bus"): edge_attr_bb,
-        ("gen", "connected_to", "bus"): None,
-        ("bus", "connected_to", "gen"): None,
     }
 
     # Random Bernoulli mask per (entity, time, feature) at rate 0.5.
