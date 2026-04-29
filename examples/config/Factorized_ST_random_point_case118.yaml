@@ -1,0 +1,77 @@
+# Factorized spatio-temporal masked reconstruction — random-point masking on case118_ieee.
+#
+# Same problem and dataset as Temporal_Reconstruction_random_point_case118.yaml
+# but with the FactorizedSpatioTemporalGNS_heterogeneous model in place of
+# the per-time-step baseline. Each of the model's `num_layers` blocks
+# now alternates a spatial graph-transformer step (HeteroConv with
+# TransformerConv per relation, run per time step) with a temporal
+# self-attention step that mixes information across the time axis at
+# each node. Together this implements the factorized space-time
+# attention pattern from STD-MAE / GeoMAE, adapted for heterogeneous
+# bus/gen graphs.
+#
+# Pair with examples/datakit_configs/test_case118_50.yaml for the
+# 50-scenario data, or scale up `data.scenarios`, `training.batch_size`,
+# and `training.epochs` for the production training runs.
+
+callbacks:
+  patience: 100
+  tol: 0
+
+task:
+  task_name: TemporalReconstruction
+
+masking:
+  strategy: random_point
+  rate: 0.5
+
+data:
+  baseMVA: 100
+  mask_value: 0.0
+  normalization: HeteroDataMVANormalizer
+  networks:
+    - case118_ieee
+  scenarios:
+    - 50
+  test_ratio: 0.1
+  val_ratio: 0.1
+  workers: 2
+  split_by_load_scenario_idx: true
+  window_size: 6
+  window_stride: 1
+
+model:
+  type: FactorizedSpatioTemporalGNS_heterogeneous
+  attention_head: 2
+  edge_dim: 10
+  hidden_size: 16
+  input_bus_dim: 15
+  input_gen_dim: 6
+  output_bus_dim: 2
+  output_gen_dim: 1
+  num_layers: 2
+  dropout: 0.0
+
+optimizer:
+  beta1: 0.9
+  beta2: 0.999
+  learning_rate: 0.0005
+  lr_decay: 0.7
+  lr_patience: 5
+
+seed: 0
+
+training:
+  batch_size: 4
+  epochs: 3
+  loss_weights:
+    - 1.0
+  losses:
+    - MaskedBusMSE
+  loss_args:
+    - {}
+  accelerator: auto
+  devices: auto
+  strategy: auto
+
+verbose: true

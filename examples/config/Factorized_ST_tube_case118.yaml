@@ -1,0 +1,71 @@
+# Factorized spatio-temporal masked reconstruction — tube masking on case118_ieee.
+#
+# Tube masking is the persistent-failure analogue of block_spatial: a
+# fixed subset of buses is masked across every training sample,
+# modeling a sustained sensor outage or a permanently uninstrumented
+# region. The factorized model has to learn to function with that
+# region permanently absent — useful for pretraining a model that
+# will be deployed in a partial-observability setting.
+
+callbacks:
+  patience: 100
+  tol: 0
+
+task:
+  task_name: TemporalReconstruction
+
+masking:
+  strategy: tube
+  tube_rate: 0.3
+  tube_seed: 0
+
+data:
+  baseMVA: 100
+  mask_value: 0.0
+  normalization: HeteroDataMVANormalizer
+  networks:
+    - case118_ieee
+  scenarios:
+    - 50
+  test_ratio: 0.1
+  val_ratio: 0.1
+  workers: 2
+  split_by_load_scenario_idx: true
+  window_size: 6
+  window_stride: 1
+
+model:
+  type: FactorizedSpatioTemporalGNS_heterogeneous
+  attention_head: 2
+  edge_dim: 10
+  hidden_size: 16
+  input_bus_dim: 15
+  input_gen_dim: 6
+  output_bus_dim: 2
+  output_gen_dim: 1
+  num_layers: 2
+  dropout: 0.0
+
+optimizer:
+  beta1: 0.9
+  beta2: 0.999
+  learning_rate: 0.0005
+  lr_decay: 0.7
+  lr_patience: 5
+
+seed: 0
+
+training:
+  batch_size: 4
+  epochs: 3
+  loss_weights:
+    - 1.0
+  losses:
+    - MaskedBusMSE
+  loss_args:
+    - {}
+  accelerator: auto
+  devices: auto
+  strategy: auto
+
+verbose: true
