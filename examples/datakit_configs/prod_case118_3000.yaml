@@ -1,0 +1,53 @@
+# Production-scale QSTS dataset for the thesis ablation table.
+#
+# Generates 3000 scenarios on IEEE 118-bus with the agg_load_profile
+# generator and FIXED topology (no perturbation of any kind), so that
+# every scenario shares the same edge_index and the temporal pipeline's
+# topology-invariance assertion holds across windows of any length.
+#
+# Why 3000? Big enough to give the model meaningful temporal context
+# (2977 windows at window_size=12, stride=1) without the compute cost
+# of the upstream library's 250k-scenario production runs. Sized for an
+# MS thesis ablation table with realistic per-cell wall-clock.
+#
+# The dataset is written to Lustre scratch (`/mnt/lustre/suny/gsapkota/`),
+# matching the cluster's documented filesystem-tier intent for bulk
+# data. See `LAB_NOTEBOOK.md` §1.2 and the project_empire_ai_access
+# memory for the rationale.
+
+network:
+  name: case118_ieee
+  source: pglib
+
+load:
+  generator: agg_load_profile
+  agg_profile: default
+  scenarios: 3000
+  sigma: 0.15
+  change_reactive_power: true
+  global_range: 0.4
+  max_scaling_factor: 3.0
+  step_size: 0.05
+  start_scaling_factor: 0.8
+
+# Fixed topology — no perturbations of any kind. Every scenario shares
+# the same edge_index, which is what the QSTS-temporal pipeline needs.
+topology_perturbation:
+  type: none
+generation_perturbation:
+  type: none
+admittance_perturbation:
+  type: none
+
+settings:
+  num_processes: 8
+  data_dir: /mnt/lustre/suny/gsapkota/data
+  large_chunk_size: 500
+  overwrite: false
+  mode: pf
+  include_dc_res: true
+  pf_fast: false
+  dcpf_fast: false
+  enable_solver_logs: false
+  max_iter: 100
+  no_stats: false
