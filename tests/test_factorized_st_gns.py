@@ -245,11 +245,15 @@ def test_factorized_model_forward_shape():
     x_dict, ei, ea, md = _make_temporal_sample()
     with torch.no_grad():
         out = model(x_dict, ei, ea, md)
-    # Bus output: [N, T, output_bus_dim]
+    # Bus output is the physics decoder's output [Vm, Va, Pg, Qg],
+    # always 4 columns regardless of `output_bus_dim` (which sets the
+    # mlp_bus intermediate width to (Vm, Va) only). The loss
+    # (`MaskedBusMSE`) consumes specific columns of this 4-wide tensor
+    # via VM_OUT / VA_OUT / PG_OUT / QG_OUT indices.
     assert out["bus"].shape == (
         x_dict["bus"].shape[0],
         x_dict["bus"].shape[1],
-        args.model.output_bus_dim,
+        4,
     )
     # Gen output: [G, T, output_gen_dim]
     assert out["gen"].shape == (
