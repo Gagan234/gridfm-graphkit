@@ -406,13 +406,6 @@ class LitGridHeteroDataModule(L.LightningDataModule):
             )
             num_scenarios = len(base_dataset)
 
-        # Take the first `num_scenarios` in load_scenario_idx order — this
-        # gives a temporally contiguous block, which the wrapper requires.
-        full_load = base_dataset.load_scenarios
-        order = torch.argsort(full_load)
-        contiguous_indices: List[int] = order[:num_scenarios].tolist()
-        contiguous_load = full_load[contiguous_indices]
-
         window_size_attr = getattr(self.args.data, "window_size", None)
         if window_size_attr is None:
             raise ValueError(
@@ -421,6 +414,36 @@ class LitGridHeteroDataModule(L.LightningDataModule):
             )
         window_size = int(window_size_attr)
         window_stride = int(getattr(self.args.data, "window_stride", 1))
+
+        # Pick a temporally contiguous block of base scenarios. Real
+        # gridfm-datakit output may have duplicate load_scenario_idx
+        # values (multiple topology-perturbation variants of the same
+        # time step) or gaps (subsampled time series); see
+        # ``_pick_contiguous_temporal_block`` for the resolution rules.
+        contiguous_indices, contiguous_load = (
+            self._pick_contiguous_temporal_block(
+                base_dataset.load_scenarios, num_scenarios,
+            )
+        )
+        if len(contiguous_indices) < num_scenarios:
+            warnings.warn(
+                f"Temporal pipeline requested {num_scenarios} scenarios but "
+                f"the longest contiguous load_scenario_idx run in "
+                f"{network!r} is only {len(contiguous_indices)}. Using "
+                "that. (Likely cause: the dataset has duplicate "
+                "load_scenario_idx values from topology perturbations, or "
+                "non-contiguous load_scenario_idx values from temporal "
+                "subsampling.)",
+            )
+            num_scenarios = len(contiguous_indices)
+        if num_scenarios < window_size:
+            raise ValueError(
+                f"After contiguous-run extraction only {num_scenarios} "
+                f"scenarios remain — fewer than window_size={window_size}. "
+                "Cannot form any temporal windows. Consider regenerating "
+                "the dataset with a contiguous QSTS load profile and no "
+                "topology perturbation.",
+            )
 
         window_transform = get_task_transforms(args=self.args)
 
@@ -461,6 +484,86 @@ class LitGridHeteroDataModule(L.LightningDataModule):
             test_scenario_ids,
             num_scenarios,
         )
+
+    @staticmethod
+    def _pick_contiguous_temporal_block(
+        load_scenarios: torch.Tensor,
+        num_scenarios: int,
+    ) -> Tuple[List[int], torch.Tensor]:
+        """Pick a temporally contiguous block of base-dataset scenarios.
+
+        Real ``gridfm-datakit`` output is not guaranteed to satisfy the
+        wrapper's strict invariant (one scenario per ``load_scenario_idx``,
+        all values forming a contiguous integer run when sorted). Two
+        common departures from that ideal:
+
+        - **Duplicates.** When the data was generated with topology
+          perturbation, multiple scenarios share the same
+          ``load_scenario_idx`` (one per topology variant of that time
+          step). Resolution: keep the first scenario seen for each unique
+          ``load_scenario_idx``. This is deterministic — ``torch.argsort``
+          with ``stable=True`` preserves the original order among ties.
+        - **Gaps.** When the underlying load profile was subsampled, the
+          unique ``load_scenario_idx`` values may have holes (e.g.
+          ``0, 5, 10, ...``). Resolution: find the longest run of
+          consecutive integers in the deduplicated values and keep only
+          that run.
+
+        After both filters, take up to ``num_scenarios`` from the run, in
+        increasing ``load_scenario_idx`` order.
+
+        Args:
+            load_scenarios: 1-D long tensor where
+                ``load_scenarios[i]`` is the ``load_scenario_idx`` of base
+                scenario ``i``.
+            num_scenarios: maximum block length to return.
+
+        Returns:
+            ``(chosen_indices, chosen_load_scenarios)``:
+            - ``chosen_indices``: list of base-dataset scenario indices,
+              in increasing-``load_scenario_idx`` order. Length is
+              ``min(num_scenarios, longest_run_length)``.
+            - ``chosen_load_scenarios``: 1-D long tensor of the
+              corresponding ``load_scenario_idx`` values; guaranteed to
+              be a contiguous integer run.
+        """
+        if len(load_scenarios) == 0:
+            return [], torch.empty(0, dtype=load_scenarios.dtype)
+
+        order = torch.argsort(load_scenarios, stable=True)
+        sorted_loads = load_scenarios[order]
+        sorted_scenarios = order
+
+        # Deduplicate: among scenarios sharing a load_scenario_idx, keep
+        # the first one in original (pre-sort) index order. The stable
+        # sort above guarantees that "first in sorted order among ties"
+        # means "smallest original index among ties".
+        keep_mask = torch.ones(len(sorted_loads), dtype=torch.bool)
+        if len(sorted_loads) > 1:
+            keep_mask[1:] = sorted_loads[1:] != sorted_loads[:-1]
+        unique_loads = sorted_loads[keep_mask]
+        unique_scenarios = sorted_scenarios[keep_mask]
+
+        # Find the longest run of consecutive integers in unique_loads.
+        if len(unique_loads) == 1:
+            best_start, best_end = 0, 1
+        else:
+            diffs = unique_loads[1:] - unique_loads[:-1]
+            cuts = (diffs != 1).nonzero(as_tuple=True)[0] + 1
+            starts = [0] + cuts.tolist()
+            ends = cuts.tolist() + [len(unique_loads)]
+            best_start, best_end = max(
+                zip(starts, ends), key=lambda se: se[1] - se[0],
+            )
+
+        run_loads = unique_loads[best_start:best_end]
+        run_scenarios = unique_scenarios[best_start:best_end]
+
+        n = min(int(num_scenarios), len(run_scenarios))
+        chosen_scenarios = run_scenarios[:n].tolist()
+        chosen_loads = run_loads[:n].clone()
+
+        return chosen_scenarios, chosen_loads
 
     @staticmethod
     def _extract_temporal_scenario_ids(

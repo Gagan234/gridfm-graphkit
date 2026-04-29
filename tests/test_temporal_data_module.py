@@ -137,10 +137,16 @@ def test_temporal_batch_carries_mask_dict_and_masked_positions_are_zeroed():
     assert torch.all(bus_x[bus_mask] == 0.0)
 
 
-def test_temporal_train_scenarios_are_contiguous_block():
-    """The temporal pipeline must take the smallest N load_scenario_idx
-    values as the active scenarios — non-contiguous would break the
-    HeteroGridTemporalDataset's invariants."""
+def test_temporal_splits_cover_a_contiguous_run_of_load_scenario_idx():
+    """The union of train/val/test scenario IDs must map to a contiguous
+    run of ``load_scenario_idx`` values, with exactly one scenario per
+    time step.
+
+    With overlapping sliding windows (stride < window_size) every chosen
+    scenario appears in at least one window, so the union of split
+    scenarios equals the contiguous block selected by
+    ``_pick_contiguous_temporal_block``.
+    """
     dm = _build_datamodule()
     dm.setup("fit")
 
@@ -149,14 +155,89 @@ def test_temporal_train_scenarios_are_contiguous_block():
         | set(dm.val_scenario_ids[0])
         | set(dm.test_scenario_ids[0])
     )
-    # Active scenarios = the union of scenarios appearing in any window.
-    # With stride=1 and num_scenarios windows starting at 0..N-window_size,
-    # this should equal num_scenarios distinct scenarios.
     base = dm.datasets[0]
-    full_load = base.load_scenarios
-    order = torch.argsort(full_load).tolist()
-    expected = sorted(order[: int(dm.args.data.scenarios[0])])
-    assert all_ids == expected
+    chosen_loads = sorted(
+        {int(base.load_scenarios[i].item()) for i in all_ids},
+    )
+    # Contiguous integer run.
+    assert chosen_loads == list(
+        range(chosen_loads[0], chosen_loads[-1] + 1),
+    )
+    # One scenario per time step (no duplicate load_scenario_idx values
+    # surviving the deduplication).
+    assert len(chosen_loads) == len(all_ids)
+
+
+# ---------------------------------------------------------------------------
+# Direct unit tests for the contiguous-run picker. These run without disk
+# IO and don't depend on the case14_ieee test data, so they're a
+# guaranteed signal even if the on-disk data has unusual structure.
+# ---------------------------------------------------------------------------
+
+
+def test_pick_contiguous_block_clean_input():
+    ls = torch.tensor([3, 1, 4, 0, 2], dtype=torch.long)
+    indices, loads = LitGridHeteroDataModule._pick_contiguous_temporal_block(
+        ls, num_scenarios=5,
+    )
+    assert loads.tolist() == [0, 1, 2, 3, 4]
+    assert indices == [3, 1, 4, 0, 2]
+
+
+def test_pick_contiguous_block_dedupes_keeping_first_per_load_idx():
+    # Three topology variants per time step.
+    ls = torch.tensor([0, 0, 0, 1, 1, 1, 2, 2, 2], dtype=torch.long)
+    indices, loads = LitGridHeteroDataModule._pick_contiguous_temporal_block(
+        ls, num_scenarios=10,
+    )
+    assert loads.tolist() == [0, 1, 2]
+    assert indices == [0, 3, 6]
+
+
+def test_pick_contiguous_block_picks_longest_run_with_gap():
+    # Two runs: [0,1,2] of length 3, then [10,11,12,13] of length 4.
+    ls = torch.tensor([0, 1, 2, 10, 11, 12, 13], dtype=torch.long)
+    indices, loads = LitGridHeteroDataModule._pick_contiguous_temporal_block(
+        ls, num_scenarios=10,
+    )
+    assert loads.tolist() == [10, 11, 12, 13]
+    assert indices == [3, 4, 5, 6]
+
+
+def test_pick_contiguous_block_caps_at_num_scenarios():
+    ls = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.long)
+    indices, loads = LitGridHeteroDataModule._pick_contiguous_temporal_block(
+        ls, num_scenarios=3,
+    )
+    assert loads.tolist() == [0, 1, 2]
+    assert indices == [0, 1, 2]
+
+
+def test_pick_contiguous_block_combines_dedup_and_gap_handling():
+    # Run A dedupes to [0, 1] (length 2). Run B dedupes to [5, 6, 7, 8]
+    # (length 4). Picker chooses B; first scenarios for each load value.
+    ls = torch.tensor([0, 0, 1, 1, 5, 5, 6, 7, 8], dtype=torch.long)
+    indices, loads = LitGridHeteroDataModule._pick_contiguous_temporal_block(
+        ls, num_scenarios=100,
+    )
+    assert loads.tolist() == [5, 6, 7, 8]
+    assert indices == [4, 6, 7, 8]
+
+
+def test_pick_contiguous_block_singleton_input():
+    indices, loads = LitGridHeteroDataModule._pick_contiguous_temporal_block(
+        torch.tensor([42], dtype=torch.long), num_scenarios=5,
+    )
+    assert loads.tolist() == [42]
+    assert indices == [0]
+
+
+def test_pick_contiguous_block_empty_input():
+    indices, loads = LitGridHeteroDataModule._pick_contiguous_temporal_block(
+        torch.empty(0, dtype=torch.long), num_scenarios=5,
+    )
+    assert indices == []
+    assert len(loads) == 0
 
 
 @pytest.mark.parametrize(
