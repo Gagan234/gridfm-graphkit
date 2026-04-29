@@ -23,11 +23,16 @@ data:
   - case14_ieee
   scenarios:
   - 72
-  test_ratio: 0.1
-  val_ratio: 0.1
+  # The case14_ieee fixture has 12 topology-perturbation variants ×
+  # 6 timesteps. After topology grouping the longest same-topology
+  # contiguous run is 6 scenarios. With window_size=3 we get 4
+  # windows; val_ratio=test_ratio=0.25 keeps every split non-empty
+  # (1 train sample, 1 val, 1 test, 1 train ⟶ 2/1/1 by floor math).
+  test_ratio: 0.25
+  val_ratio: 0.25
   workers: 1
   split_by_load_scenario_idx: true
-  window_size: 6
+  window_size: 3
   window_stride: 1
 model:
   attention_head: 2

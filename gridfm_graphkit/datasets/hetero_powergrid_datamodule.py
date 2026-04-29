@@ -3,6 +3,7 @@ import torch
 import os
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import Compose
+from torch_geometric.data import HeteroData
 from torch.utils.data import ConcatDataset
 from torch.utils.data import Subset
 import torch.distributed as dist
@@ -26,7 +27,7 @@ import numpy as np
 import random
 import warnings
 import lightning as L
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 from lightning.pytorch.loggers import MLFlowLogger
 
 
@@ -415,14 +416,19 @@ class LitGridHeteroDataModule(L.LightningDataModule):
         window_size = int(window_size_attr)
         window_stride = int(getattr(self.args.data, "window_stride", 1))
 
-        # Pick a temporally contiguous block of base scenarios. Real
-        # gridfm-datakit output may have duplicate load_scenario_idx
-        # values (multiple topology-perturbation variants of the same
-        # time step) or gaps (subsampled time series); see
-        # ``_pick_contiguous_temporal_block`` for the resolution rules.
+        # Pick a same-topology temporally contiguous block of base
+        # scenarios. Real gridfm-datakit output may have duplicate
+        # load_scenario_idx values from topology perturbations (one
+        # scenario per (topology variant, timestep) pair) or gaps from
+        # temporal subsampling. The grouped picker first partitions the
+        # scenarios into topology equivalence classes (post-cleanup
+        # edge_index), then finds the longest contiguous run within
+        # each class, and returns the best result. For the production
+        # fixed-topology case the partition has a single class and
+        # behavior matches the non-grouped picker.
         contiguous_indices, contiguous_load = (
-            self._pick_contiguous_temporal_block(
-                base_dataset.load_scenarios, num_scenarios,
+            self._pick_contiguous_block_grouped_by_topology(
+                base_dataset, per_scenario_transform, num_scenarios,
             )
         )
         if len(contiguous_indices) < num_scenarios:
@@ -564,6 +570,111 @@ class LitGridHeteroDataModule(L.LightningDataModule):
         chosen_loads = run_loads[:n].clone()
 
         return chosen_scenarios, chosen_loads
+
+    @staticmethod
+    def _group_scenarios_by_topology(
+        base_dataset: HeteroGridDatasetDisk,
+        per_scenario_transform: Compose,
+    ) -> Dict[Tuple[Tuple[int, int], ...], List[int]]:
+        """Group base-dataset scenario indices by post-cleanup topology.
+
+        Reads each scenario's processed ``.pt`` file directly (bypassing
+        the data normalizer, which has not yet been fit at this point in
+        ``setup``), applies the per-scenario transform chain
+        (``RemoveInactiveBranches`` + ``RemoveInactiveGenerators``), and
+        groups by a canonicalized representation of the resulting
+        bus-bus ``edge_index``. Two scenarios are in the same group iff
+        their post-cleanup edge sets are equal.
+
+        For the QSTS production case (fixed topology, no perturbation),
+        every scenario yields the same ``edge_index`` and the result is
+        a single-key dict containing every scenario index. For
+        topology-perturbation data, the dict has one key per
+        perturbation variant.
+
+        Args:
+            base_dataset: a constructed (already-processed)
+                ``HeteroGridDatasetDisk``. Read access only — the
+                in-memory dataset object is not mutated.
+            per_scenario_transform: the same ``Compose`` chain that the
+                temporal pipeline will apply at training time, so the
+                topology key reflects what the wrapper will actually
+                see.
+
+        Returns:
+            ``Dict[topology_key, List[scenario_idx]]``. Keys are tuples
+            of ``(src, dst)`` edge tuples, sorted lexicographically;
+            equal keys imply equal edge sets. Values are lists of base
+            scenario indices, in increasing order.
+        """
+        groups: Dict[Tuple[Tuple[int, int], ...], List[int]] = {}
+        et = ("bus", "connects", "bus")
+        for i in range(len(base_dataset)):
+            file_name = os.path.join(
+                base_dataset.processed_dir, f"data_index_{i}.pt",
+            )
+            data_dict = torch.load(file_name, weights_only=True)
+            data = HeteroData.from_dict(data_dict)
+            data = per_scenario_transform(data)
+            edge_index = data[et].edge_index
+            # Canonicalize so column-permutations of the same edge set
+            # produce equal keys.
+            key = tuple(
+                sorted((int(s), int(d)) for s, d in edge_index.t().tolist())
+            )
+            groups.setdefault(key, []).append(i)
+        return groups
+
+    def _pick_contiguous_block_grouped_by_topology(
+        self,
+        base_dataset: HeteroGridDatasetDisk,
+        per_scenario_transform: Compose,
+        num_scenarios: int,
+    ) -> Tuple[List[int], torch.Tensor]:
+        """Pick a same-topology, temporally contiguous block of scenarios.
+
+        Composes :meth:`_group_scenarios_by_topology` and
+        :meth:`_pick_contiguous_temporal_block`: for each topology
+        equivalence class, finds the longest run of consecutive
+        ``load_scenario_idx`` values within that class; returns the
+        longest such run across all classes (capped to
+        ``num_scenarios``).
+
+        This is the operation the temporal pipeline really needs: every
+        scenario in a window must share the same topology *and* form a
+        contiguous time series. Splitting the problem into "group by
+        topology, then find runs per group" guarantees both invariants
+        in a single pass.
+
+        Returns:
+            ``(chosen_indices, chosen_load_scenarios)`` where
+            ``chosen_indices`` are base-dataset scenario indices in
+            load_scenario_idx-increasing order, all sharing one
+            topology, and the corresponding load_scenario_idx values
+            form a contiguous integer run.
+        """
+        groups = self._group_scenarios_by_topology(
+            base_dataset, per_scenario_transform,
+        )
+        full_load = base_dataset.load_scenarios
+
+        best_indices: List[int] = []
+        best_loads: torch.Tensor = torch.empty(0, dtype=full_load.dtype)
+
+        for scenario_idxs in groups.values():
+            idx_tensor = torch.tensor(scenario_idxs, dtype=torch.long)
+            group_loads = full_load[idx_tensor]
+            sub_positions, sub_loads = self._pick_contiguous_temporal_block(
+                group_loads, num_scenarios,
+            )
+            full_positions = [
+                int(idx_tensor[p].item()) for p in sub_positions
+            ]
+            if len(full_positions) > len(best_indices):
+                best_indices = full_positions
+                best_loads = sub_loads
+
+        return best_indices, best_loads
 
     @staticmethod
     def _extract_temporal_scenario_ids(
