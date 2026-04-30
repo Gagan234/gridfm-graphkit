@@ -46,11 +46,12 @@ echo "Checkpoint:   ${CHECKPOINT_OUT:-<not saved>}"
 echo
 
 # Resolve HOME robustly. On the `cpu` partition, the job environment
-# sometimes lands without a usable $HOME (so `~` expands to empty),
-# producing paths like `//miniforge3/...`. `getent passwd` is
-# authoritative regardless of how the job was launched.
+# strips both $HOME and $USER, so we fall back through every standard
+# way to get the running user's identity. `id -un` always works
+# because it queries the kernel for the effective UID.
+JOB_USER="${USER:-${LOGNAME:-$(id -un)}}"
 if [ -z "${HOME:-}" ] || [ "$HOME" = "/" ]; then
-    HOME=$(getent passwd "$USER" | cut -d: -f6)
+    HOME=$(getent passwd "$JOB_USER" | cut -d: -f6)
     export HOME
 fi
 
