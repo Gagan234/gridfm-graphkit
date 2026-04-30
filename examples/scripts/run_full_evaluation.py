@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end thesis evaluation: walk MLflow runs, run forecasting eval, build the table.
+"""End-to-end thesis evaluation: walk MLflow runs, run forecasting eval, build the tables.
 
 This script is the "press one button to get the thesis results"
 endpoint. After the ablation matrix has finished training, run::
@@ -19,15 +19,21 @@ It will:
    :func:`forecasting_eval.run_forecasting_eval` in-process so we
    avoid 36× Python-startup overhead).
 4. Collect the per-run JSON outputs into a long-format CSV.
-5. Render two Markdown tables for the experiments chapter:
+5. Render Markdown tables for the experiments chapter:
 
    - **Pretraining table:** masked-reconstruction loss (from MLflow's
      ``Test Masked bus MSE loss`` metric), strategies × architectures,
      mean ± std across seeds.
    - **Forecasting table:** Vm RMSE / NRMSE on held-out future windows,
      same layout, plus a persistence-baseline reference column.
+   - **Non-foundation baselines table** (if ``--baseline-results-dir``
+     is provided and contains JSON outputs from
+     ``examples/scripts/train_baseline.py``): one row per baseline
+     (linear / MLP / LSTM) with mean ± std forecasting metrics across
+     seeds. This is the trained-but-non-foundation reference for the
+     thesis comparison.
 
-Both tables are paste-ready for the thesis methodology + experiments
+All tables are paste-ready for the thesis methodology + experiments
 chapters.
 """
 
@@ -247,6 +253,17 @@ def main() -> None:
             "all checkpoints have finished."
         ),
     )
+    p.add_argument(
+        "--baseline-results-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional directory containing JSON outputs from "
+            "examples/scripts/train_baseline.py. If provided, a third "
+            "Markdown table summarising the non-foundation baselines "
+            "(linear / MLP / LSTM) is rendered."
+        ),
+    )
     args = p.parse_args()
 
     runs_dir = args.runs_dir.expanduser().resolve()
@@ -387,6 +404,134 @@ def main() -> None:
         )
         (output_dir / "thesis_forecasting_table.md").write_text(forecasting_md)
         print(f"  wrote {output_dir / 'thesis_forecasting_table.md'}")
+
+    # Non-foundation baselines table (optional).
+    if args.baseline_results_dir is not None:
+        _render_baselines_table(
+            args.baseline_results_dir,
+            output_dir / "thesis_baselines_table.md",
+        )
+
+
+def _render_baselines_table(
+    results_dir: Path,
+    out_path: Path,
+) -> None:
+    """Aggregate the per-baseline-per-seed JSON outputs into a table.
+
+    Reads every ``*.json`` file in ``results_dir`` (assuming each is
+    the output of ``examples/scripts/train_baseline.py``) and emits a
+    Markdown table with one row per baseline (linear / MLP / LSTM),
+    columns for Vm RMSE / NRMSE / Va RMSE, mean ± std across seeds.
+    Includes the persistence reference (computed inline by each
+    baseline's training script on the same test windows; pooled across
+    baselines because the persistence value is independent of the
+    model).
+    """
+    results_dir = results_dir.expanduser().resolve()
+    if not results_dir.is_dir():
+        print(
+            f"  ! baseline-results-dir does not exist: {results_dir}",
+            file=sys.stderr,
+        )
+        return
+
+    rows: List[dict] = []
+    for json_path in sorted(results_dir.glob("*.json")):
+        with open(json_path) as f:
+            record = json.load(f)
+        rows.append(record)
+
+    if not rows:
+        print(
+            f"  (no baseline JSONs found in {results_dir})",
+            file=sys.stderr,
+        )
+        return
+
+    # Group by baseline type.
+    grouped: Dict[str, List[dict]] = {}
+    for r in rows:
+        grouped.setdefault(r.get("baseline", "?"), []).append(r)
+
+    persistence_vm_rmse: List[float] = []
+    persistence_va_rmse: List[float] = []
+    for r in rows:
+        try:
+            persistence_vm_rmse.append(
+                float(r["metrics"]["persistence"]["vm"]["rmse"]),
+            )
+            persistence_va_rmse.append(
+                float(r["metrics"]["persistence"]["va"]["rmse"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        f.write("## Non-foundation baseline forecasting results\n\n")
+        f.write(
+            "Mean ± standard deviation across seeds; lower is better. "
+            "Each baseline is trained directly on the forecasting "
+            "objective (predict the trailing 4 time steps' Vm and Va "
+            "from the preceding 8 time steps of bus features). Weights "
+            "are shared across all buses, so the baselines do not "
+            "exploit graph topology — this isolates the value of the "
+            "graph-aware foundation-model contribution. The persistence "
+            "row is the naive 'future = last observed' reference, "
+            "pooled across all baseline runs (the persistence "
+            "prediction is independent of the trained model).\n\n",
+        )
+        f.write("| Method | Vm RMSE | Vm NRMSE | Va RMSE |\n")
+        f.write("|---|---|---|---|\n")
+
+        # Persistence row first (the reference floor).
+        f.write(
+            "| persistence (zero-param) | "
+            f"{_format_cell(persistence_vm_rmse)} | "
+            f"— | "
+            f"{_format_cell(persistence_va_rmse)} |\n",
+        )
+
+        for baseline_name in ("linear", "mlp", "lstm"):
+            group = grouped.get(baseline_name, [])
+            if not group:
+                f.write(
+                    f"| {baseline_name} | — | — | — |\n",
+                )
+                continue
+            vm_rmse_vals: List[float] = []
+            vm_nrmse_vals: List[float] = []
+            va_rmse_vals: List[float] = []
+            for r in group:
+                try:
+                    vm_rmse_vals.append(
+                        float(r["metrics"]["model"]["vm"]["rmse"]),
+                    )
+                    vm_nrmse_vals.append(
+                        float(r["metrics"]["model"]["vm"]["nrmse"]),
+                    )
+                    va_rmse_vals.append(
+                        float(r["metrics"]["model"]["va"]["rmse"]),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+            f.write(
+                f"| {baseline_name} | "
+                f"{_format_cell(vm_rmse_vals)} | "
+                f"{_format_cell(vm_nrmse_vals)} | "
+                f"{_format_cell(va_rmse_vals)} |\n",
+            )
+
+        # Per-baseline run counts.
+        f.write("\n### Runs per baseline\n\n")
+        f.write("| baseline | seeds |\n|---|---|\n")
+        for baseline_name in ("linear", "mlp", "lstm"):
+            f.write(
+                f"| {baseline_name} | "
+                f"{len(grouped.get(baseline_name, []))} |\n",
+            )
+    print(f"  wrote {out_path}")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,11 @@ from gridfm_graphkit.models.temporal_gns_heterogeneous import (
 from gridfm_graphkit.models.factorized_st_gns_heterogeneous import (
     FactorizedSpatioTemporalGNS_heterogeneous,
 )
+from gridfm_graphkit.models.baselines import (
+    LinearForecaster,
+    MLPForecaster,
+    LSTMForecaster,
+)
 from gridfm_graphkit.models.utils import (
     PhysicsDecoderOPF,
     PhysicsDecoderPF,
@@ -15,6 +20,9 @@ __all__ = [
     "GNS_heterogeneous",
     "TemporalGNS_heterogeneous",
     "FactorizedSpatioTemporalGNS_heterogeneous",
+    "LinearForecaster",
+    "MLPForecaster",
+    "LSTMForecaster",
     "PhysicsDecoderOPF",
     "PhysicsDecoderPF",
     "PhysicsDecoderSE",

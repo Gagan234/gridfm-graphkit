@@ -1,0 +1,71 @@
+# Production config shared by all three non-foundation baselines
+# (linear / mlp / lstm) on the 3000-scenario case118 QSTS dataset.
+#
+# Hyperparameters that vary by baseline (hidden_size, num_layers,
+# dropout) are read by the model classes from `args.model.*` if present,
+# with the model-specific defaults otherwise:
+#   - LinearForecaster ignores them entirely
+#   - MLPForecaster reads hidden_size, dropout
+#   - LSTMForecaster reads hidden_size, num_layers, dropout
+#
+# The launcher sets `model.type` per run before invoking train_baseline.py.
+
+callbacks:
+  patience: 100
+  tol: 0
+
+# The baselines do NOT use the masking framework — they read the
+# unmasked context (first context_len = window_size - horizon time
+# steps) directly. The task name and masking entries below are
+# present so the temporal datamodule still routes through its
+# temporal branch (with block_temporal trailing as a no-op since
+# the baselines ignore the mask).
+task:
+  task_name: TemporalReconstruction
+
+masking:
+  strategy: block_temporal
+  block_length: 4
+  anchor: trailing
+
+data:
+  baseMVA: 100
+  mask_value: 0.0
+  normalization: HeteroDataMVANormalizer
+  networks:
+    - case118_ieee
+  scenarios:
+    - 3000
+  test_ratio: 0.1
+  val_ratio: 0.1
+  workers: 4
+  split_by_load_scenario_idx: true
+  window_size: 12
+  window_stride: 1
+
+model:
+  # `type` is overridden per run by the launcher (LinearForecaster /
+  # MLPForecaster / LSTMForecaster).
+  type: LinearForecaster
+  horizon: 4
+  input_bus_dim: 15
+  output_features: 2
+  # Used by MLP and LSTM only:
+  hidden_size: 64
+  num_layers: 2
+  dropout: 0.1
+
+optimizer:
+  beta1: 0.9
+  beta2: 0.999
+  learning_rate: 0.001
+  lr_decay: 0.7
+  lr_patience: 5
+
+seed: 0  # overridden per run
+
+training:
+  batch_size: 32
+  epochs: 30
+
+verbose: true
