@@ -43,7 +43,12 @@ settings:
   num_processes: 8
   data_dir: /mnt/lustre/suny/gsapkota/data
   large_chunk_size: 500
-  overwrite: false
+  # overwrite: true so an interrupted-and-re-run data-gen replaces the
+  # partial output rather than appending. We hit the silent-append
+  # failure mode once (got 6000 scenarios for a 3000-scenario request)
+  # and a 18-min regeneration is cheaper than a contaminated dataset
+  # producing confusing thesis results.
+  overwrite: true
   mode: pf
   include_dc_res: true
   pf_fast: false
