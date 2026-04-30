@@ -45,10 +45,19 @@ echo "Output:       $OUTPUT"
 echo "Checkpoint:   ${CHECKPOINT_OUT:-<not saved>}"
 echo
 
-source ~/miniforge3/etc/profile.d/conda.sh
+# Resolve HOME robustly. On the `cpu` partition, the job environment
+# sometimes lands without a usable $HOME (so `~` expands to empty),
+# producing paths like `//miniforge3/...`. `getent passwd` is
+# authoritative regardless of how the job was launched.
+if [ -z "${HOME:-}" ] || [ "$HOME" = "/" ]; then
+    HOME=$(getent passwd "$USER" | cut -d: -f6)
+    export HOME
+fi
+
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate gridfm
 
-cd ~/gridfm-graphkit
+cd "$HOME/gridfm-graphkit"
 
 CKPT_ARGS=()
 if [ -n "$CHECKPOINT_OUT" ]; then
