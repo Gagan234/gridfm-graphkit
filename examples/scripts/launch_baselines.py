@@ -20,6 +20,7 @@ Subset support::
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import shutil
 import subprocess
@@ -63,6 +64,11 @@ def _submit_one(
     metrics_path = runs_dir / "baseline_results" / f"{run_name}.json"
     ckpt_path = runs_dir / "baseline_checkpoints" / f"{run_name}.pt"
 
+    # Pass HOME and USER explicitly via --export so the job inherits
+    # the login-node values. Some partitions on this cluster (cpu in
+    # particular) start jobs without these set, and the user account
+    # may not even be resolvable in the compute node's NSS — ID
+    # lookups fail. The login node always knows them.
     export_dict = {
         "CONFIG": str(BASE_CONFIG.resolve()),
         "BASELINE": baseline,
@@ -70,6 +76,8 @@ def _submit_one(
         "DATA_PATH": str(data_dir),
         "OUTPUT": str(metrics_path),
         "CHECKPOINT_OUT": str(ckpt_path),
+        "HOME": str(Path.home()),
+        "USER": os.environ.get("USER", "gsapkota"),
     }
     export_str = ",".join(f"{k}={v}" for k, v in export_dict.items())
 

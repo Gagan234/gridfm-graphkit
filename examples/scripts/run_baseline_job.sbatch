@@ -45,15 +45,14 @@ echo "Output:       $OUTPUT"
 echo "Checkpoint:   ${CHECKPOINT_OUT:-<not saved>}"
 echo
 
-# Resolve HOME robustly. On the `cpu` partition, the job environment
-# strips both $HOME and $USER, so we fall back through every standard
-# way to get the running user's identity. `id -un` always works
-# because it queries the kernel for the effective UID.
-JOB_USER="${USER:-${LOGNAME:-$(id -un)}}"
-if [ -z "${HOME:-}" ] || [ "$HOME" = "/" ]; then
-    HOME=$(getent passwd "$JOB_USER" | cut -d: -f6)
-    export HOME
-fi
+# HOME and USER are passed explicitly through the launcher's
+# --export. The cpu partition on this cluster doesn't inherit either
+# from the login node, and the user account isn't even resolvable
+# via NSS on every compute node — `id -un` and `getent passwd` both
+# fail. Re-export so child processes (conda's init scripts) see them.
+: "${HOME:?HOME must be set; use launch_baselines.py which exports it}"
+: "${USER:?USER must be set; use launch_baselines.py which exports it}"
+export HOME USER
 
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate gridfm
