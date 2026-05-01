@@ -38,7 +38,11 @@ data:
     - 3000
   test_ratio: 0.1
   val_ratio: 0.1
-  workers: 4
+  # workers=0 to avoid spawning DataLoader worker processes; each
+  # worker copies the dataset and tensor state into a separate
+  # address space, which under multi-job CPU contention drives the
+  # node OOM during the test-eval phase.
+  workers: 0
   split_by_load_scenario_idx: true
   window_size: 12
   window_stride: 1
